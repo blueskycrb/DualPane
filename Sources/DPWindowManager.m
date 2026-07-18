@@ -84,6 +84,62 @@
     }
 }
 
+- (void)handleActivationForBundleID:(NSString *)bundleID {
+    [self handleActivationForBundleID:bundleID preferredMode:DPPresentationModeNone];
+}
+
+- (void)handleActivationForBundleID:(NSString *)bundleID preferredMode:(DPPresentationMode)mode {
+    if (![DPSettings shared].isEnabled) return;
+    if (!bundleID.length) {
+        [self handleActivationRequest];
+        return;
+    }
+    if ([[DPSettings shared] isBundleBlacklisted:bundleID]) return;
+
+    // preferredMode 优先；否则走默认模式；Ask 则弹出中文模式选择，不再二次选 App
+    DPPresentationMode resolved = mode;
+    if (resolved == DPPresentationModeNone) {
+        DPDefaultMode dm = [DPSettings shared].defaultMode;
+        if (dm == DPDefaultModeFloating) resolved = DPPresentationModeFloating;
+        else if (dm == DPDefaultModeSplit) resolved = DPPresentationModeSplit;
+    }
+
+    if (resolved == DPPresentationModeFloating) {
+        [self openFloatingWithBundleID:bundleID];
+        return;
+    }
+    if (resolved == DPPresentationModeSplit) {
+        NSString *primary = [self foregroundBundleID];
+        // 主屏上触发时前台可能就是 SpringBoard 或同一 App
+        if (!primary.length || [primary isEqualToString:bundleID]) {
+            primary = @"com.apple.springboard";
+        }
+        [self openSplitWithPrimary:primary secondary:bundleID];
+        return;
+    }
+
+    // 询问模式：只选悬浮/分屏，App 已由图标确定
+    if (self.modeChooser) {
+        [self.modeChooser dismiss];
+        self.modeChooser = nil;
+    }
+    UIView *parent = self.overlayRoot ?: self.hostWindow;
+    if (!parent) {
+        // 窗口尚未挂载时先走通用流程
+        [self handleActivationRequest];
+        return;
+    }
+    __weak typeof(self) weakSelf = self;
+    NSString *target = [bundleID copy];
+    self.modeChooser = [[DPOverlayController alloc] init];
+    [self.modeChooser presentModeChooserInView:parent
+                                    completion:^(DPPresentationMode chosen) {
+        weakSelf.modeChooser = nil;
+        if (chosen == DPPresentationModeNone) return;
+        [weakSelf handleActivationForBundleID:target preferredMode:chosen];
+    }];
+}
+
 - (void)presentModeChooser {
     if (self.modeChooser) {
         [self.modeChooser dismiss];

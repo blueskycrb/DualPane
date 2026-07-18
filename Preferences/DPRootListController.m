@@ -30,15 +30,15 @@ static BOOL DPValueForGestureKey(NSString *key, BOOL fallback) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"DualPane";
+    self.title = @"分屏助手";
 }
 
 - (void)respring {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Respring"
-                                                                   message:@"Respring SpringBoard now?\n立即注销 SpringBoard？"
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"注销"
+                                                                   message:@"立即注销主屏幕？"
                                                             preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Respring" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"注销" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
         (void)action;
         pid_t pid;
         const char *args[] = { "sbreload", NULL };
@@ -51,11 +51,11 @@ static BOOL DPValueForGestureKey(NSString *key, BOOL fallback) {
 }
 
 - (void)resetSettings {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Reset Settings"
-                                                                   message:@"Restore all DualPane preferences to defaults?\n恢复所有 DualPane 设置为默认值？"
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"重置设置"
+                                                                   message:@"恢复所有设置为默认值？"
                                                             preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Reset" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"重置" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
         (void)action;
         NSString *domain = @"com.dualpane.tweak";
         CFArrayRef keys = CFPreferencesCopyKeyList((__bridge CFStringRef)domain,
@@ -84,23 +84,32 @@ static BOOL DPValueForGestureKey(NSString *key, BOOL fallback) {
     [super setPreferenceValue:value specifier:specifier];
 
     NSString *key = [specifier propertyForKey:@"key"];
-    NSArray *gestureKeys = @[@"gestureEdgeSwipe", @"gestureThreeFinger", @"gestureStatusBar", @"gestureHomeIndicator"];
+    NSArray *gestureKeys = @[
+        @"gestureEdgeSwipe", @"gestureThreeFinger", @"gestureStatusBar",
+        @"gestureHomeIndicator", @"gestureIconSwipeUp", @"gestureIconLongPress"
+    ];
     if ([gestureKeys containsObject:key]) {
-        BOOL edge = DPValueForGestureKey(@"gestureEdgeSwipe", YES);
-        BOOL three = DPValueForGestureKey(@"gestureThreeFinger", YES);
+        BOOL edge = DPValueForGestureKey(@"gestureEdgeSwipe", NO);
+        BOOL three = DPValueForGestureKey(@"gestureThreeFinger", NO);
         BOOL status = DPValueForGestureKey(@"gestureStatusBar", NO);
         BOOL home = DPValueForGestureKey(@"gestureHomeIndicator", NO);
+        BOOL iconSwipe = DPValueForGestureKey(@"gestureIconSwipeUp", YES);
+        BOOL iconLong = DPValueForGestureKey(@"gestureIconLongPress", YES);
 
         if ([key isEqualToString:@"gestureEdgeSwipe"]) edge = [value boolValue];
         if ([key isEqualToString:@"gestureThreeFinger"]) three = [value boolValue];
         if ([key isEqualToString:@"gestureStatusBar"]) status = [value boolValue];
         if ([key isEqualToString:@"gestureHomeIndicator"]) home = [value boolValue];
+        if ([key isEqualToString:@"gestureIconSwipeUp"]) iconSwipe = [value boolValue];
+        if ([key isEqualToString:@"gestureIconLongPress"]) iconLong = [value boolValue];
 
         NSMutableArray *enabled = [NSMutableArray array];
         if (edge) [enabled addObject:@0];
         if (three) [enabled addObject:@1];
         if (status) [enabled addObject:@2];
         if (home) [enabled addObject:@3];
+        if (iconSwipe) [enabled addObject:@4];
+        if (iconLong) [enabled addObject:@5];
 
         CFPreferencesSetAppValue(CFSTR("enabledGestures"),
                                  (__bridge CFPropertyListRef)enabled,

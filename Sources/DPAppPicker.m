@@ -124,7 +124,7 @@
     [self.sheet addSubview:grabber];
 
     self.titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, 20, parent.bounds.size.width - 100, 24)];
-    self.titleLabel.text = @"Choose App · 选择应用";
+    self.titleLabel.text = @"选择应用";
     self.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
     self.titleLabel.textColor = [UIColor whiteColor];
     self.titleLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
@@ -133,14 +133,14 @@
     self.cancelButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.cancelButton.frame = CGRectMake(parent.bounds.size.width - 80, 16, 64, 32);
     self.cancelButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
-    [self.cancelButton setTitle:@"Cancel" forState:UIControlStateNormal];
+    [self.cancelButton setTitle:@"取消" forState:UIControlStateNormal];
     self.cancelButton.tintColor = [UIColor systemBlueColor];
     [self.cancelButton addTarget:self action:@selector(cancelTapped) forControlEvents:UIControlEventTouchUpInside];
     [self.sheet addSubview:self.cancelButton];
 
     self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(12, 52, parent.bounds.size.width - 24, 44)];
     self.searchBar.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    self.searchBar.placeholder = @"Search apps / 搜索";
+    self.searchBar.placeholder = @"搜索应用";
     self.searchBar.searchBarStyle = UISearchBarStyleMinimal;
     self.searchBar.delegate = self;
     self.searchBar.barStyle = UIBarStyleBlack;

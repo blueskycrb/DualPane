@@ -134,7 +134,7 @@ static const CGFloat kDPSplitToolbarHeight = 40.0;
     self.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
     self.titleLabel.textColor = [UIColor whiteColor];
     self.titleLabel.textAlignment = NSTextAlignmentCenter;
-    self.titleLabel.text = @"DualPane";
+    self.titleLabel.text = @"分屏";
 
     [self.toolbar addSubview:self.closeButton];
     [self.toolbar addSubview:self.swapButton];

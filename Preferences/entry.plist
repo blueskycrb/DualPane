@@ -5,6 +5,6 @@
 		detail = DPRootListController;
 		icon = icon.png;
 		isController = 1;
-		label = DualPane;
+		label = "分屏助手";
 	};
 }

@@ -8,6 +8,8 @@ typedef NS_ENUM(NSInteger, DPActivationGesture) {
     DPActivationGestureThreeFingerSwipeUp = 1,
     DPActivationGestureStatusBarDoubleTap = 2,
     DPActivationGestureHomeIndicatorLongPress = 3,
+    DPActivationGestureIconSwipeUp = 4,     // 主屏幕图标上滑
+    DPActivationGestureIconLongPress = 5,   // 主屏幕图标长按菜单
 };
 
 typedef NS_ENUM(NSInteger, DPDefaultMode) {

@@ -41,26 +41,26 @@
     [card addGestureRecognizer:noop];
 
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(20, 18, 260, 24)];
-    title.text = @"DualPane";
+    title.text = @"分屏助手";
     title.font = [UIFont systemFontOfSize:18 weight:UIFontWeightBold];
     title.textColor = [UIColor whiteColor];
     title.textAlignment = NSTextAlignmentCenter;
     [card addSubview:title];
 
     UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(20, 44, 260, 20)];
-    sub.text = @"选择模式 · Choose mode";
+    sub.text = @"请选择打开方式";
     sub.font = [UIFont systemFontOfSize:13];
     sub.textColor = [UIColor colorWithWhite:1 alpha:0.6];
     sub.textAlignment = NSTextAlignmentCenter;
     [card addSubview:sub];
 
-    UIButton *floatBtn = [self bigButtonWithTitle:@"Floating Window\n悬浮窗口"
+    UIButton *floatBtn = [self bigButtonWithTitle:@"悬浮窗口"
                                            symbol:@"rectangle.on.rectangle"
                                             frame:CGRectMake(20, 80, 125, 100)
                                            action:@selector(chooseFloating)];
     [card addSubview:floatBtn];
 
-    UIButton *splitBtn = [self bigButtonWithTitle:@"Split Screen\n左右分屏"
+    UIButton *splitBtn = [self bigButtonWithTitle:@"左右分屏"
                                            symbol:@"rectangle.split.2x1"
                                             frame:CGRectMake(155, 80, 125, 100)
                                            action:@selector(chooseSplit)];

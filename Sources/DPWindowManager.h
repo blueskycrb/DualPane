@@ -22,6 +22,9 @@ typedef NS_ENUM(NSInteger, DPPresentationMode) {
 
 - (void)installInWindow:(UIWindow *)window;
 - (void)handleActivationRequest;
+/// 从主屏幕某个 App 图标触发：bundleID 为该图标对应应用（作为副屏/悬浮目标）
+- (void)handleActivationForBundleID:(NSString *)bundleID;
+- (void)handleActivationForBundleID:(NSString *)bundleID preferredMode:(DPPresentationMode)mode;
 - (void)presentAppPickerWithCompletion:(void (^ _Nullable)(NSString * _Nullable bundleID))completion;
 - (void)openBundleID:(NSString *)bundleID inMode:(DPPresentationMode)mode;
 - (void)openFloatingWithBundleID:(NSString *)bundleID;

@@ -107,7 +107,7 @@ static NSString * const kPrefsDomain = @"com.dualpane.tweak";
 }
 
 - (DPDefaultMode)defaultMode {
-    return (DPDefaultMode)[self integerForKey:@"defaultMode" default:DPDefaultModeAsk];
+    return (DPDefaultMode)[self integerForKey:@"defaultMode" default:DPDefaultModeSplit];
 }
 
 - (DPSplitOrientation)splitOrientation {
@@ -160,12 +160,12 @@ static NSString * const kPrefsDomain = @"com.dualpane.tweak";
     if ([arr isKindOfClass:[NSArray class]] && arr.count > 0) {
         return arr;
     }
-    // Rebuild from individual toggles written by the prefs bundle
+    // 根据设置页的独立开关重建（图标触发默认开启，更容易用）
     NSMutableArray *built = [NSMutableArray array];
-    if ([self boolForKey:@"gestureEdgeSwipe" default:YES]) {
+    if ([self boolForKey:@"gestureEdgeSwipe" default:NO]) {
         [built addObject:@(DPActivationGestureEdgeSwipe)];
     }
-    if ([self boolForKey:@"gestureThreeFinger" default:YES]) {
+    if ([self boolForKey:@"gestureThreeFinger" default:NO]) {
         [built addObject:@(DPActivationGestureThreeFingerSwipeUp)];
     }
     if ([self boolForKey:@"gestureStatusBar" default:NO]) {
@@ -174,10 +174,16 @@ static NSString * const kPrefsDomain = @"com.dualpane.tweak";
     if ([self boolForKey:@"gestureHomeIndicator" default:NO]) {
         [built addObject:@(DPActivationGestureHomeIndicatorLongPress)];
     }
+    if ([self boolForKey:@"gestureIconSwipeUp" default:YES]) {
+        [built addObject:@(DPActivationGestureIconSwipeUp)];
+    }
+    if ([self boolForKey:@"gestureIconLongPress" default:YES]) {
+        [built addObject:@(DPActivationGestureIconLongPress)];
+    }
     if (built.count > 0) return [built copy];
-    // Absolute fallback
-    return @[@(DPActivationGestureEdgeSwipe),
-             @(DPActivationGestureThreeFingerSwipeUp)];
+    // 兜底：图标上滑 + 图标长按
+    return @[@(DPActivationGestureIconSwipeUp),
+             @(DPActivationGestureIconLongPress)];
 }
 
 - (NSArray<NSString *> *)blacklist {

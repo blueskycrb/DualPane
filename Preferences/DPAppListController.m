@@ -3,7 +3,7 @@
 #import <notify.h>
 
 @interface DPAppListController : PSListController
-@property (nonatomic, copy) NSString *listType; // @"favorites" or @"blacklist"
+@property (nonatomic, copy) NSString *listType;
 @property (nonatomic, strong) NSMutableArray<NSString *> *bundleIDs;
 @end
 
@@ -12,7 +12,7 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.listType = [self.specifier propertyForKey:@"listType"] ?: @"favorites";
-    self.title = [self.listType isEqualToString:@"favorites"] ? @"Favorites" : @"Blacklist";
+    self.title = [self.listType isEqualToString:@"favorites"] ? @"收藏" : @"黑名单";
 
     NSArray *stored = (NSArray *)CFBridgingRelease(CFPreferencesCopyAppValue(
         (__bridge CFStringRef)self.listType, CFSTR("com.dualpane.tweak")));
@@ -30,8 +30,8 @@
 
         PSSpecifier *group = [PSSpecifier preferenceSpecifierNamed:
                               ([self.listType isEqualToString:@"favorites"]
-                               ? @"Favorite apps appear first in the picker.\n收藏应用会优先显示在选择器中。"
-                               : @"Blacklisted apps cannot be opened in DualPane.\n黑名单中的应用无法在 DualPane 中打开。")
+                               ? @"收藏的应用会优先显示在选择器中。"
+                               : @"黑名单中的应用无法用分屏/悬浮窗打开。")
                                                             target:self
                                                                set:NULL
                                                                get:NULL
@@ -53,7 +53,7 @@
         }
 
         if (self.bundleIDs.count == 0) {
-            PSSpecifier *empty = [PSSpecifier preferenceSpecifierNamed:@"(empty — tap + to add)"
+            PSSpecifier *empty = [PSSpecifier preferenceSpecifierNamed:@"（空 — 点右上角 + 添加）"
                                                                 target:self
                                                                    set:NULL
                                                                    get:NULL
@@ -86,8 +86,8 @@
 }
 
 - (void)addBundleID {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Add Bundle ID"
-                                                                   message:@"Enter an app bundle identifier\n输入应用 Bundle ID\n(e.g. com.apple.mobilesafari)"
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"添加应用"
+                                                                   message:@"输入应用 Bundle ID\n例如：com.apple.mobilesafari"
                                                             preferredStyle:UIAlertControllerStyleAlert];
     [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
         textField.placeholder = @"com.example.app";
@@ -95,8 +95,8 @@
         textField.autocorrectionType = UITextAutocorrectionTypeNo;
         textField.keyboardType = UIKeyboardTypeURL;
     }];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Add" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"添加" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         (void)action;
         NSString *bid = [alert.textFields.firstObject.text stringByTrimmingCharactersInSet:
                          [NSCharacterSet whitespaceAndNewlineCharacterSet]];

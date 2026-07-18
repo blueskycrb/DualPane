@@ -226,8 +226,8 @@
     self.hintLabel.numberOfLines = 0;
     self.hintLabel.textAlignment = NSTextAlignmentCenter;
     self.hintLabel.text = self.class.isSceneHostingAvailable
-        ? @"Waiting for app scene…\nOpen the app once, then re-attach."
-        : @"Scene host preview\nLive embedding requires device SpringBoard private APIs.";
+        ? @"正在等待应用画面…\n请先打开一次该应用，再重新分屏。"
+        : @"应用画面预览\n真机嵌入需要 SpringBoard 私有接口。";
     [stack addArrangedSubview:self.hintLabel];
 
     [NSLayoutConstraint activateConstraints:@[

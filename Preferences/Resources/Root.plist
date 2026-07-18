@@ -4,19 +4,15 @@
 <dict>
 	<key>items</key>
 	<array>
-		<!-- Header -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
-			<key>headerCellClass</key>
-			<string>DPHeaderCell</string>
 			<key>label</key>
-			<string>DualPane</string>
+			<string>分屏助手</string>
 			<key>footerText</key>
-			<string>Floating window + true split-screen for iOS 15–16.5.1 (Bootstrap / rootless). 悬浮窗与真分屏多任务。</string>
+			<string>适用于 Bootstrap / rootless（iOS 15.0–16.5.1）。支持悬浮窗与左右分屏。推荐：主屏幕图标上滑，或长按图标选「分屏打开」。</string>
 		</dict>
 
-		<!-- Master switch -->
 		<dict>
 			<key>cell</key>
 			<string>PSSwitchCell</string>
@@ -27,34 +23,33 @@
 			<key>key</key>
 			<string>enabled</string>
 			<key>label</key>
-			<string>Enabled · 启用</string>
+			<string>启用</string>
 			<key>PostNotification</key>
 			<string>com.dualpane.tweak/settings.changed</string>
 		</dict>
 
-		<!-- Mode -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>label</key>
-			<string>Default Mode · 默认模式</string>
+			<string>默认模式</string>
 			<key>footerText</key>
-			<string>Ask = show chooser each time. Floating / Split jump straight into that mode after picking an app. 选择「询问」则每次弹出模式选择。</string>
+			<string>「询问」：每次先选悬浮窗或分屏。选「悬浮窗/分屏」则直接进入该模式。</string>
 		</dict>
 		<dict>
 			<key>cell</key>
 			<string>PSSegmentCell</string>
 			<key>default</key>
-			<integer>2</integer>
+			<integer>1</integer>
 			<key>defaults</key>
 			<string>com.dualpane.tweak</string>
 			<key>key</key>
 			<string>defaultMode</string>
 			<key>validTitles</key>
 			<array>
-				<string>Floating</string>
-				<string>Split</string>
-				<string>Ask</string>
+				<string>悬浮窗</string>
+				<string>分屏</string>
+				<string>询问</string>
 			</array>
 			<key>validValues</key>
 			<array>
@@ -66,12 +61,137 @@
 			<string>com.dualpane.tweak/settings.changed</string>
 		</dict>
 
-		<!-- Split -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>label</key>
-			<string>Split Screen · 分屏</string>
+			<string>触发方式（推荐）</string>
+			<key>footerText</key>
+			<string>主屏幕对图标操作最方便：上滑图标直接打开；长按图标菜单里选「分屏打开」或「悬浮窗打开」。</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.dualpane.tweak</string>
+			<key>key</key>
+			<string>gestureIconSwipeUp</string>
+			<key>label</key>
+			<string>图标上滑</string>
+			<key>PostNotification</key>
+			<string>com.dualpane.tweak/settings.changed</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.dualpane.tweak</string>
+			<key>key</key>
+			<string>gestureIconLongPress</string>
+			<key>label</key>
+			<string>图标长按菜单</string>
+			<key>PostNotification</key>
+			<string>com.dualpane.tweak/settings.changed</string>
+		</dict>
+
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>label</key>
+			<string>其他手势</string>
+			<key>footerText</key>
+			<string>备用触发方式，默认关闭。边缘滑动可能与系统返回手势冲突。</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.dualpane.tweak</string>
+			<key>key</key>
+			<string>gestureEdgeSwipe</string>
+			<key>label</key>
+			<string>边缘滑动</string>
+			<key>PostNotification</key>
+			<string>com.dualpane.tweak/settings.changed</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.dualpane.tweak</string>
+			<key>key</key>
+			<string>gestureThreeFinger</string>
+			<key>label</key>
+			<string>三指上滑</string>
+			<key>PostNotification</key>
+			<string>com.dualpane.tweak/settings.changed</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.dualpane.tweak</string>
+			<key>key</key>
+			<string>gestureStatusBar</string>
+			<key>label</key>
+			<string>状态栏双击</string>
+			<key>PostNotification</key>
+			<string>com.dualpane.tweak/settings.changed</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.dualpane.tweak</string>
+			<key>key</key>
+			<string>gestureHomeIndicator</string>
+			<key>label</key>
+			<string>主页条长按</string>
+			<key>PostNotification</key>
+			<string>com.dualpane.tweak/settings.changed</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSliderCell</string>
+			<key>default</key>
+			<real>0.5</real>
+			<key>defaults</key>
+			<string>com.dualpane.tweak</string>
+			<key>key</key>
+			<string>edgeSwipeSensitivity</string>
+			<key>min</key>
+			<real>0.0</real>
+			<key>max</key>
+			<real>1.0</real>
+			<key>showValue</key>
+			<true/>
+			<key>PostNotification</key>
+			<string>com.dualpane.tweak/settings.changed</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>边缘滑动灵敏度（越高越容易触发）</string>
+		</dict>
+
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>label</key>
+			<string>分屏</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -84,8 +204,8 @@
 			<string>splitOrientation</string>
 			<key>validTitles</key>
 			<array>
-				<string>Left | Right</string>
-				<string>Top / Bottom</string>
+				<string>左右</string>
+				<string>上下</string>
 			</array>
 			<key>validValues</key>
 			<array>
@@ -110,10 +230,14 @@
 			<real>0.8</real>
 			<key>showValue</key>
 			<true/>
-			<key>label</key>
-			<string>Default Ratio</string>
 			<key>PostNotification</key>
 			<string>com.dualpane.tweak/settings.changed</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>默认分割比例</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -125,17 +249,16 @@
 			<key>key</key>
 			<string>dimBackgroundInSplit</string>
 			<key>label</key>
-			<string>Dim Background · 分屏时压暗背景</string>
+			<string>分屏时压暗背景</string>
 			<key>PostNotification</key>
 			<string>com.dualpane.tweak/settings.changed</string>
 		</dict>
 
-		<!-- Floating -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>label</key>
-			<string>Floating Window · 悬浮窗</string>
+			<string>悬浮窗</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -159,7 +282,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Default floating width (pt) · 默认悬浮窗宽度</string>
+			<string>默认宽度</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -183,7 +306,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Default floating height (pt) · 默认悬浮窗高度</string>
+			<string>默认高度</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -207,7 +330,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Content opacity · 内容不透明度</string>
+			<string>内容不透明度</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -231,7 +354,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Corner radius · 圆角</string>
+			<string>圆角</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -243,7 +366,7 @@
 			<key>key</key>
 			<string>showBorder</string>
 			<key>label</key>
-			<string>Show Border · 显示边框</string>
+			<string>显示边框</string>
 			<key>PostNotification</key>
 			<string>com.dualpane.tweak/settings.changed</string>
 		</dict>
@@ -277,105 +400,14 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Max simultaneous floating windows · 最多同时悬浮窗数量</string>
+			<string>最多同时显示的悬浮窗数量</string>
 		</dict>
 
-		<!-- Gestures -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>label</key>
-			<string>Gestures · 手势</string>
-			<key>footerText</key>
-			<string>Edge swipe from left/right, three-finger swipe up, status-bar double-tap, or home-indicator long-press. 左/右边缘滑动、三指上滑、状态栏双击、主页指示条长按。</string>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSSwitchCell</string>
-			<key>default</key>
-			<true/>
-			<key>defaults</key>
-			<string>com.dualpane.tweak</string>
-			<key>key</key>
-			<string>gestureEdgeSwipe</string>
-			<key>label</key>
-			<string>Edge Swipe · 边缘滑动</string>
-			<key>PostNotification</key>
-			<string>com.dualpane.tweak/settings.changed</string>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSSwitchCell</string>
-			<key>default</key>
-			<true/>
-			<key>defaults</key>
-			<string>com.dualpane.tweak</string>
-			<key>key</key>
-			<string>gestureThreeFinger</string>
-			<key>label</key>
-			<string>Three-Finger Swipe Up · 三指上滑</string>
-			<key>PostNotification</key>
-			<string>com.dualpane.tweak/settings.changed</string>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSSwitchCell</string>
-			<key>default</key>
-			<false/>
-			<key>defaults</key>
-			<string>com.dualpane.tweak</string>
-			<key>key</key>
-			<string>gestureStatusBar</string>
-			<key>label</key>
-			<string>Status Bar Double-Tap · 状态栏双击</string>
-			<key>PostNotification</key>
-			<string>com.dualpane.tweak/settings.changed</string>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSSwitchCell</string>
-			<key>default</key>
-			<false/>
-			<key>defaults</key>
-			<string>com.dualpane.tweak</string>
-			<key>key</key>
-			<string>gestureHomeIndicator</string>
-			<key>label</key>
-			<string>Home Indicator Long-Press · 主页条长按</string>
-			<key>PostNotification</key>
-			<string>com.dualpane.tweak/settings.changed</string>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSSliderCell</string>
-			<key>default</key>
-			<real>0.5</real>
-			<key>defaults</key>
-			<string>com.dualpane.tweak</string>
-			<key>key</key>
-			<string>edgeSwipeSensitivity</string>
-			<key>min</key>
-			<real>0.0</real>
-			<key>max</key>
-			<real>1.0</real>
-			<key>showValue</key>
-			<true/>
-			<key>PostNotification</key>
-			<string>com.dualpane.tweak/settings.changed</string>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSGroupCell</string>
-			<key>footerText</key>
-			<string>Edge swipe sensitivity (higher = easier) · 边缘滑动灵敏度（越高越容易触发）</string>
-		</dict>
-
-		<!-- Behavior -->
-		<dict>
-			<key>cell</key>
-			<string>PSGroupCell</string>
-			<key>label</key>
-			<string>Behavior · 行为</string>
+			<string>行为</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -387,7 +419,7 @@
 			<key>key</key>
 			<string>hapticFeedback</string>
 			<key>label</key>
-			<string>Haptic Feedback · 触感反馈</string>
+			<string>触感反馈</string>
 			<key>PostNotification</key>
 			<string>com.dualpane.tweak/settings.changed</string>
 		</dict>
@@ -401,7 +433,7 @@
 			<key>key</key>
 			<string>animateTransitions</string>
 			<key>label</key>
-			<string>Animations · 动画</string>
+			<string>动画效果</string>
 			<key>PostNotification</key>
 			<string>com.dualpane.tweak/settings.changed</string>
 		</dict>
@@ -415,7 +447,7 @@
 			<key>key</key>
 			<string>rememberLastApps</string>
 			<key>label</key>
-			<string>Remember Last Apps · 记住上次应用</string>
+			<string>记住上次应用</string>
 			<key>PostNotification</key>
 			<string>com.dualpane.tweak/settings.changed</string>
 		</dict>
@@ -429,19 +461,18 @@
 			<key>key</key>
 			<string>allowLandscape</string>
 			<key>label</key>
-			<string>Allow Landscape · 允许横屏</string>
+			<string>允许横屏</string>
 			<key>PostNotification</key>
 			<string>com.dualpane.tweak/settings.changed</string>
 		</dict>
 
-		<!-- Apps -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>label</key>
-			<string>Apps · 应用</string>
+			<string>应用</string>
 			<key>footerText</key>
-			<string>Manage favorites shown first in the picker, and a blacklist of apps DualPane will refuse to host. 管理选择器中优先显示的收藏应用，以及拒绝托管的黑名单。</string>
+			<string>收藏会优先显示在选择器中；黑名单中的应用无法被分屏/悬浮打开。</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -451,7 +482,7 @@
 			<key>isController</key>
 			<true/>
 			<key>label</key>
-			<string>Favorites · 收藏</string>
+			<string>收藏</string>
 			<key>listType</key>
 			<string>favorites</string>
 		</dict>
@@ -463,17 +494,16 @@
 			<key>isController</key>
 			<true/>
 			<key>label</key>
-			<string>Blacklist · 黑名单</string>
+			<string>黑名单</string>
 			<key>listType</key>
 			<string>blacklist</string>
 		</dict>
 
-		<!-- Actions -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>label</key>
-			<string>Actions · 操作</string>
+			<string>操作</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -481,7 +511,7 @@
 			<key>action</key>
 			<string>respring</string>
 			<key>label</key>
-			<string>Respring · 注销</string>
+			<string>注销</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -489,17 +519,16 @@
 			<key>action</key>
 			<string>resetSettings</string>
 			<key>label</key>
-			<string>Reset Settings · 重置设置</string>
+			<string>重置设置</string>
 		</dict>
 
-		<!-- About -->
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>label</key>
-			<string>About · 关于</string>
+			<string>关于</string>
 			<key>footerText</key>
-			<string>DualPane 1.0.0 · MIT License · Built for Bootstrap / rootless on iOS 15.0 – 16.5.1. Live app-scene embedding uses SpringBoard private APIs and may need per-device tuning. 真机上的应用画面嵌入依赖 SpringBoard 私有 API，不同设备可能需要微调。</string>
+			<string>分屏助手 1.0.1 · 适用于 Bootstrap / rootless。第二个应用的真实画面依赖系统私有接口，若显示占位页，请先单独打开一次该应用再试。</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -507,10 +536,10 @@
 			<key>action</key>
 			<string>openGitHub</string>
 			<key>label</key>
-			<string>GitHub Repository</string>
+			<string>打开 GitHub 仓库</string>
 		</dict>
 	</array>
 	<key>title</key>
-	<string>DualPane</string>
+	<string>分屏助手</string>
 </dict>
 </plist>
