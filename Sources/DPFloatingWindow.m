@@ -96,7 +96,8 @@ static const CGFloat kDPMinHeight = 220.0;
                                                                      self.bounds.size.width,
                                                                      self.bounds.size.height - kDPTitleBarHeight)];
     self.contentContainer.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    self.contentContainer.backgroundColor = [UIColor blackColor];
+    // 深灰底，避免空白时看起来像「蓝屏」
+    self.contentContainer.backgroundColor = [UIColor colorWithRed:0.10 green:0.11 blue:0.13 alpha:1.0];
     self.contentContainer.clipsToBounds = YES;
     [self.chromeView addSubview:self.contentContainer];
 
@@ -340,9 +341,10 @@ static const CGFloat kDPMinHeight = 220.0;
 - (void)applyAppearance {
     if (self.showsBorder) {
         self.chromeView.layer.borderWidth = self.isActive ? 1.5 : 0.5;
+        // 用浅白描边，不用 systemBlue（在深色底上容易整块发蓝）
         self.chromeView.layer.borderColor = self.isActive
-            ? [UIColor systemBlueColor].CGColor
-            : [UIColor colorWithWhite:1 alpha:0.25].CGColor;
+            ? [UIColor colorWithWhite:1 alpha:0.55].CGColor
+            : [UIColor colorWithWhite:1 alpha:0.22].CGColor;
     } else {
         self.chromeView.layer.borderWidth = 0;
     }

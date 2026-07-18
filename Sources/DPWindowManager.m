@@ -297,9 +297,7 @@
     window.cornerRadiusValue = [DPSettings shared].floatingCornerRadius;
     window.showsBorder = [DPSettings shared].showBorder;
 
-    DPSceneHost *host = [[DPSceneHost alloc] initWithBundleID:bundleID];
-    [window attachSceneHost:host];
-
+    // 先占位，等 frame 落地后再创建 host，避免 0 尺寸 host view
     __weak typeof(self) weakSelf = self;
     window.onClose = ^(DPFloatingWindow *w) {
         [weakSelf closeFloatingWindow:w animated:YES];
@@ -328,6 +326,12 @@
     [self.mutableFloatingWindows addObject:window];
     self.mode = DPPresentationModeFloating;
     [self bringOverlayToFront];
+
+    // layout 后再挂 host，保证 contentContainer 有真实尺寸
+    [window setNeedsLayout];
+    [window layoutIfNeeded];
+    DPSceneHost *host = [[DPSceneHost alloc] initWithBundleID:bundleID];
+    [window attachSceneHost:host];
 
     if ([DPSettings shared].animateTransitions) {
         window.alpha = 0;
@@ -406,6 +410,8 @@
                                ratio:ratio
                             animated:YES];
 
+    // 先 layout 再挂 host，避免 0 尺寸
+    [self.splitManager layoutForBounds:parent.bounds];
     DPSceneHost *pHost = [[DPSceneHost alloc] initWithBundleID:primary ?: @"com.apple.springboard"];
     DPSceneHost *sHost = [[DPSceneHost alloc] initWithBundleID:secondary];
     [self.splitManager attachPrimaryHost:pHost];
@@ -500,11 +506,9 @@
     if ([self.launchAllowlist containsObject:bundleID]) {
         return NO;
     }
-    if (self.mode == DPPresentationModeNone && self.mutableHostedBundleIDs.count == 0) return NO;
+    // 只有我们真正在展示悬浮/分屏时才拦截；避免误伤普通启动
+    if (self.mode == DPPresentationModeNone) return NO;
     if ([self.mutableHostedBundleIDs containsObject:bundleID]) return YES;
-    if (self.suppressLaunch && [bundleID isEqualToString:[DPSettings shared].lastSecondaryBundleID]) {
-        return YES;
-    }
     return NO;
 }
 
@@ -512,32 +516,25 @@
     if (bundleID.length) [self.launchAllowlist addObject:bundleID];
 }
 
-/// 若还没挂上 live 画面：允许启动一次 App → 稍等 → 回桌面 → 多次重试挂接
+/// 若还没挂上 live 画面：最多拉起一次 App → 回桌面 → 有限次数重试。
+/// 绝不在已 live 时重复 goHome，避免卡顿。
 - (void)ensureSceneThenAttach:(NSString *)bundleID
                          host:(DPSceneHost *)host
                    onAttached:(void (^)(void))onAttached {
     if (!bundleID.length || !host) return;
+    if ([bundleID isEqualToString:@"com.apple.springboard"]) return;
+
     __weak typeof(self) weakSelf = self;
     __weak DPSceneHost *weakHost = host;
 
-    void (^retryFewTimes)(void) = ^{
-        NSArray *delays = @[@0.3, @0.8, @1.5, @2.5, @4.0];
-        for (NSNumber *d in delays) {
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(d.doubleValue * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                [weakHost retryAttach];
-                if (onAttached) onAttached();
-                [weakSelf bringOverlayToFront];
-                if (weakHost.isLive) {
-                    weakSelf.suppressLaunch = NO;
-                }
-            });
-        }
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            weakSelf.suppressLaunch = NO;
-        });
-    };
+    // 已 live：只刷新一次
+    if (host.isLive) {
+        if (onAttached) onAttached();
+        self.suppressLaunch = NO;
+        return;
+    }
 
-    // 先直接试
+    // 先直接试（进程可能已在后台）
     [host retryAttach];
     if (host.isLive) {
         if (onAttached) onAttached();
@@ -549,26 +546,106 @@
     [self.launchAllowlist addObject:bundleID];
     self.suppressLaunch = NO;
     [self openApplicationForeground:bundleID];
+    NSLog(@"[DualPane] 拉起进程以创建 scene: %@", bundleID);
 
-    // 0.9s 后回桌面，重新压制全屏，并开始挂接
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.9 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [weakSelf.launchAllowlist removeObject:bundleID];
-        weakSelf.suppressLaunch = YES;
-        [weakSelf.mutableHostedBundleIDs addObject:bundleID];
-        [weakSelf goHome];
-        [weakSelf bringOverlayToFront];
-        retryFewTimes();
+    // 1.2s 后回桌面，重新压制全屏，并做有限次挂接
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        __strong typeof(weakSelf) self2 = weakSelf;
+        __strong DPSceneHost *host2 = weakHost;
+        if (!self2 || !host2) return;
+
+        [self2.launchAllowlist removeObject:bundleID];
+        [self2.mutableHostedBundleIDs addObject:bundleID];
+        // 只有仍在悬浮/分屏模式才回桌面压制
+        if (self2.mode != DPPresentationModeNone) {
+            self2.suppressLaunch = YES;
+            [self2 goHome];
+            [self2 bringOverlayToFront];
+        }
+
+        // 有限重试：0.4 / 1.2 / 2.4，成功即停（用共享标志，避免 block 自引用）
+        NSArray *delays = @[@0.4, @1.2, @2.4];
+        __block BOOL finished = NO;
+        void (^finishOK)(void) = ^{
+            if (finished) return;
+            finished = YES;
+            __strong typeof(weakSelf) s = weakSelf;
+            if (onAttached) onAttached();
+            if (s) {
+                s.suppressLaunch = NO;
+                [s bringOverlayToFront];
+            }
+        };
+        void (^finishFail)(void) = ^{
+            if (finished) return;
+            finished = YES;
+            __strong typeof(weakSelf) s = weakSelf;
+            if (onAttached) onAttached();
+            if (s) {
+                s.suppressLaunch = NO;
+                [s bringOverlayToFront];
+            }
+            NSLog(@"[DualPane] 挂接失败，停止重试: %@", bundleID);
+        };
+
+        // 立即试一次
+        [host2 retryAttach];
+        if (host2.isLive) {
+            finishOK();
+            return;
+        }
+
+        NSTimeInterval acc = 0;
+        for (NSUInteger i = 0; i < delays.count; i++) {
+            acc += [delays[i] doubleValue];
+            BOOL isLast = (i == delays.count - 1);
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(acc * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                if (finished) return;
+                __strong DPSceneHost *h = weakHost;
+                if (!h) { finishFail(); return; }
+                if (h.isLive) { finishOK(); return; }
+                [h retryAttach];
+                if (h.isLive) {
+                    finishOK();
+                } else if (isLast) {
+                    finishFail();
+                }
+            });
+        }
     });
 }
 
 - (void)openApplicationForeground:(NSString *)bundleID {
+    if (!bundleID.length) return;
+
+    // 优先 LSApplicationWorkspace
     Class LSApplicationWorkspace = NSClassFromString(@"LSApplicationWorkspace");
-    if (!LSApplicationWorkspace) return;
-    id workspace = ((id (*)(id, SEL))objc_msgSend)(LSApplicationWorkspace, @selector(defaultWorkspace));
-    SEL sel = NSSelectorFromString(@"openApplicationWithBundleID:");
-    if ([workspace respondsToSelector:sel]) {
-        ((void (*)(id, SEL, id))objc_msgSend)(workspace, sel, bundleID);
-        NSLog(@"[DualPane] 临时前台启动以创建 scene: %@", bundleID);
+    if (LSApplicationWorkspace) {
+        id workspace = ((id (*)(id, SEL))objc_msgSend)(LSApplicationWorkspace, @selector(defaultWorkspace));
+        SEL sel = NSSelectorFromString(@"openApplicationWithBundleID:");
+        if ([workspace respondsToSelector:sel]) {
+            ((void (*)(id, SEL, id))objc_msgSend)(workspace, sel, bundleID);
+            NSLog(@"[DualPane] openApplicationWithBundleID: %@", bundleID);
+            return;
+        }
+    }
+
+    // 兜底：SBUIController activateApplication
+    Class SBUIController = NSClassFromString(@"SBUIController");
+    Class SBAppController = NSClassFromString(@"SBApplicationController");
+    if (SBUIController && SBAppController) {
+        id ctrl = ((id (*)(id, SEL))objc_msgSend)(SBAppController, @selector(sharedInstance));
+        id app = nil;
+        SEL appSel = NSSelectorFromString(@"applicationWithBundleIdentifier:");
+        if ([ctrl respondsToSelector:appSel]) {
+            app = ((id (*)(id, SEL, id))objc_msgSend)(ctrl, appSel, bundleID);
+        }
+        id ui = ((id (*)(id, SEL))objc_msgSend)(SBUIController, @selector(sharedInstance));
+        SEL act = NSSelectorFromString(@"activateApplication:");
+        if (app && [ui respondsToSelector:act]) {
+            ((void (*)(id, SEL, id))objc_msgSend)(ui, act, app);
+            NSLog(@"[DualPane] activateApplication: %@", bundleID);
+        }
     }
 }
 
@@ -576,10 +653,9 @@
     Class SBUIController = NSClassFromString(@"SBUIController");
     if (!SBUIController) return;
     id ui = ((id (*)(id, SEL))objc_msgSend)(SBUIController, @selector(sharedInstance));
-    for (NSString *name in @[@"handleHomeButtonSinglePressUp", @"clickedMenuButton", @"_handleButtonEventToExitSwitcher:"]) {
+    for (NSString *name in @[@"handleHomeButtonSinglePressUp", @"clickedMenuButton"]) {
         SEL sel = NSSelectorFromString(name);
         if ([ui respondsToSelector:sel]) {
-            if ([name hasSuffix:@":"]) continue;
             ((void (*)(id, SEL))objc_msgSend)(ui, sel);
             NSLog(@"[DualPane] 回桌面 via %@", name);
             break;

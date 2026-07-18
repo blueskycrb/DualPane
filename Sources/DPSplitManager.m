@@ -70,12 +70,12 @@ static const CGFloat kDPSplitToolbarHeight = 40.0;
     }
 
     self.primaryPane = [[UIView alloc] init];
-    self.primaryPane.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1];
+    self.primaryPane.backgroundColor = [UIColor colorWithRed:0.10 green:0.11 blue:0.13 alpha:1.0];
     self.primaryPane.clipsToBounds = YES;
     [self.containerView addSubview:self.primaryPane];
 
     self.secondaryPane = [[UIView alloc] init];
-    self.secondaryPane.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1];
+    self.secondaryPane.backgroundColor = [UIColor colorWithRed:0.10 green:0.11 blue:0.13 alpha:1.0];
     self.secondaryPane.clipsToBounds = YES;
     [self.containerView addSubview:self.secondaryPane];
 

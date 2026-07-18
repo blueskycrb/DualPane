@@ -1,5 +1,6 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
+#import <objc/message.h>
 #import "DPSettings.h"
 #import "DPWindowManager.h"
 #import "DPGestureController.h"
@@ -7,6 +8,7 @@
 // ── 主屏幕图标工具 ─────────────────────────────────────────────────────────
 
 static char kDPIconSwipeKey;
+static char kDPIconLongPressKey;
 
 static NSString *DPBundleIDFromIcon(id icon) {
     if (!icon) return nil;
@@ -48,7 +50,6 @@ static NSString *DPBundleIDFromObject(id obj) {
             if ([val isKindOfClass:[NSString class]] && [val length]) return val;
         } @catch (__unused NSException *e) {}
     }
-    // SBApplication
     @try {
         id app = [obj valueForKey:@"application"];
         if (app && app != obj) return DPBundleIDFromObject(app);
@@ -56,6 +57,17 @@ static NSString *DPBundleIDFromObject(id obj) {
     @try {
         id app = [obj valueForKey:@"sbApplication"];
         if (app) return DPBundleIDFromObject(app);
+    } @catch (__unused NSException *e) {}
+    // applicationSceneEntity / entities
+    @try {
+        id entity = [obj valueForKey:@"applicationSceneEntity"];
+        if (entity) {
+            NSString *b = DPBundleIDFromObject(entity);
+            if (b.length) return b;
+            id app = [entity valueForKey:@"application"];
+            b = DPBundleIDFromObject(app);
+            if (b.length) return b;
+        }
     } @catch (__unused NSException *e) {}
     return nil;
 }
@@ -68,35 +80,40 @@ static void DPHaptic(void) {
 
 static void DPGoHomeIfNeeded(void) {
     // 若系统已经把托管 App 切到前台，立刻回桌面，保留我们的顶层悬浮/分屏窗
-    dispatch_async(dispatch_get_main_queue(), ^{
+    // 加一点延迟，避免与正在进行的 transition 死锁
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if ([DPWindowManager shared].mode == DPPresentationModeNone) return;
         Class SBUIController = NSClassFromString(@"SBUIController");
         if (!SBUIController) return;
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
         id ui = [SBUIController performSelector:@selector(sharedInstance)];
 #pragma clang diagnostic pop
-        if ([ui respondsToSelector:NSSelectorFromString(@"clickedMenuButton")]) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-            [ui performSelector:NSSelectorFromString(@"clickedMenuButton")];
-#pragma clang diagnostic pop
-        } else if ([ui respondsToSelector:NSSelectorFromString(@"handleHomeButtonSinglePressUp")]) {
+        if ([ui respondsToSelector:NSSelectorFromString(@"handleHomeButtonSinglePressUp")]) {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
             [ui performSelector:NSSelectorFromString(@"handleHomeButtonSinglePressUp")];
+#pragma clang diagnostic pop
+        } else if ([ui respondsToSelector:NSSelectorFromString(@"clickedMenuButton")]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+            [ui performSelector:NSSelectorFromString(@"clickedMenuButton")];
 #pragma clang diagnostic pop
         }
         [[DPWindowManager shared] bringOverlayToFront];
     });
 }
 
-// 上滑手势
+// ── 图标上滑 ───────────────────────────────────────────────────────────────
+
 @interface DPIconGestureTarget : NSObject
 @property (nonatomic, weak) UIView *iconView;
 - (void)handleSwipe:(UISwipeGestureRecognizer *)gr;
+- (void)handleLongPress:(UILongPressGestureRecognizer *)gr;
 @end
 
 @implementation DPIconGestureTarget
+
 - (void)handleSwipe:(UISwipeGestureRecognizer *)gr {
     if (gr.state != UIGestureRecognizerStateRecognized) return;
     if (![DPSettings shared].isEnabled) return;
@@ -110,64 +127,176 @@ static void DPGoHomeIfNeeded(void) {
     else if (dm == DPDefaultModeAsk) mode = DPPresentationModeNone;
     [[DPWindowManager shared] handleActivationForBundleID:bid preferredMode:mode];
 }
-@end
 
-static void DPAttachIconSwipe(UIView *iconView) {
-    if (!iconView) return;
-    if (![[DPSettings shared] isGestureEnabled:DPActivationGestureIconSwipeUp]) return;
-    if (objc_getAssociatedObject(iconView, &kDPIconSwipeKey)) return;
+- (void)handleLongPress:(UILongPressGestureRecognizer *)gr {
+    if (gr.state != UIGestureRecognizerStateBegan) return;
+    if (![DPSettings shared].isEnabled) return;
+    // 仅当系统快捷菜单注入失败时作为兜底；默认不抢系统长按
+    // 这里用「长按 + 轻微上移」会更合适，但为可靠起见：若用户关闭了系统菜单开关则启用
+    if ([[DPSettings shared] isGestureEnabled:DPActivationGestureIconLongPress]) {
+        // 系统菜单优先；此手势 minimumPressDuration 较长，作兜底
+    }
+    NSString *bid = DPBundleIDFromIconView(self.iconView);
+    if (!bid.length) return;
 
-    DPIconGestureTarget *target = [[DPIconGestureTarget alloc] init];
-    target.iconView = iconView;
-    UISwipeGestureRecognizer *swipe = [[UISwipeGestureRecognizer alloc] initWithTarget:target action:@selector(handleSwipe:)];
-    swipe.direction = UISwipeGestureRecognizerDirectionUp;
-    swipe.numberOfTouchesRequired = 1;
-    swipe.cancelsTouchesInView = YES; // 上滑成功后不要再落到系统点击
-    swipe.delaysTouchesBegan = NO;
-    [iconView addGestureRecognizer:swipe];
-    objc_setAssociatedObject(iconView, &kDPIconSwipeKey, target, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    // 系统快捷菜单可能失效：用我们自己的选择面板（走 WindowManager 的 mode chooser）
+    DPHaptic();
+    // 直接走询问模式，界面更统一，也避免 SpringBoard present 失败
+    [[DPWindowManager shared] handleActivationForBundleID:bid preferredMode:DPPresentationModeNone];
 }
 
-static id DPMakeShortcutItem(NSString *type, NSString *title, NSString *systemImage) {
+@end
+
+static void DPAttachIconGestures(UIView *iconView) {
+    if (!iconView) return;
+    if (![DPSettings shared].isEnabled) return;
+
+    // 上滑
+    if ([[DPSettings shared] isGestureEnabled:DPActivationGestureIconSwipeUp]) {
+        if (!objc_getAssociatedObject(iconView, &kDPIconSwipeKey)) {
+            DPIconGestureTarget *target = [[DPIconGestureTarget alloc] init];
+            target.iconView = iconView;
+            UISwipeGestureRecognizer *swipe = [[UISwipeGestureRecognizer alloc] initWithTarget:target action:@selector(handleSwipe:)];
+            swipe.direction = UISwipeGestureRecognizerDirectionUp;
+            swipe.numberOfTouchesRequired = 1;
+            swipe.cancelsTouchesInView = YES;
+            swipe.delaysTouchesBegan = NO;
+            [iconView addGestureRecognizer:swipe];
+            objc_setAssociatedObject(iconView, &kDPIconSwipeKey, target, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+    }
+
+    // 长按兜底：仅当系统快捷菜单类不存在时才挂，避免和系统 Haptic Touch 叠在一起
+    if ([[DPSettings shared] isGestureEnabled:DPActivationGestureIconLongPress]
+        && !NSClassFromString(@"SBSApplicationShortcutItem")) {
+        if (!objc_getAssociatedObject(iconView, &kDPIconLongPressKey)) {
+            DPIconGestureTarget *target = [[DPIconGestureTarget alloc] init];
+            target.iconView = iconView;
+            UILongPressGestureRecognizer *lp = [[UILongPressGestureRecognizer alloc] initWithTarget:target action:@selector(handleLongPress:)];
+            lp.minimumPressDuration = 0.55;
+            lp.cancelsTouchesInView = YES;
+            lp.allowableMovement = 12;
+            [iconView addGestureRecognizer:lp];
+            objc_setAssociatedObject(iconView, &kDPIconLongPressKey, target, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+    }
+}
+
+// ── 快捷菜单项构造 ─────────────────────────────────────────────────────────
+
+static id DPMakeSystemIcon(NSString *systemImageName) {
+    if (!systemImageName.length) return nil;
+    Class IconClass = NSClassFromString(@"SBSApplicationShortcutSystemIcon");
+    if (!IconClass) return nil;
+
+    // iOS 13+: iconWithSystemImageName:
+    SEL sel1 = NSSelectorFromString(@"iconWithSystemImageName:");
+    if ([IconClass respondsToSelector:sel1]) {
+        return ((id (*)(id, SEL, id))objc_msgSend)(IconClass, sel1, systemImageName);
+    }
+    // initWithSystemImageName:
+    if ([IconClass instancesRespondToSelector:NSSelectorFromString(@"initWithSystemImageName:")]) {
+        id obj = [IconClass alloc];
+        return ((id (*)(id, SEL, id))objc_msgSend)(obj, NSSelectorFromString(@"initWithSystemImageName:"), systemImageName);
+    }
+    // 旧 API: type 枚举
+    SEL sel2 = NSSelectorFromString(@"initWithType:");
+    if ([IconClass instancesRespondToSelector:sel2]) {
+        id obj = [IconClass alloc];
+        NSUInteger type = 0;
+        return ((id (*)(id, SEL, NSUInteger))objc_msgSend)(obj, sel2, type);
+    }
+    return nil;
+}
+
+static id DPMakeShortcutItem(NSString *type, NSString *title, NSString *subtitle, NSString *systemImage) {
     Class ItemClass = NSClassFromString(@"SBSApplicationShortcutItem");
     if (!ItemClass) return nil;
     id item = [[ItemClass alloc] init];
-    @try { [item setValue:type forKey:@"type"]; } @catch (__unused NSException *e) {}
-    @try { [item setValue:title forKey:@"localizedTitle"]; } @catch (__unused NSException *e) {}
-    @try { [item setValue:@YES forKey:@"iconIsTemplate"]; } @catch (__unused NSException *e) {}
+    if (!item) return nil;
 
-    Class IconClass = NSClassFromString(@"SBSApplicationShortcutSystemIcon");
-    if (IconClass && systemImage.length) {
-        id iconObj = nil;
-        if ([IconClass respondsToSelector:NSSelectorFromString(@"iconWithSystemImageName:")]) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-            iconObj = [IconClass performSelector:NSSelectorFromString(@"iconWithSystemImageName:") withObject:systemImage];
-#pragma clang diagnostic pop
+    // type
+    if ([item respondsToSelector:@selector(setType:)]) {
+        ((void (*)(id, SEL, id))objc_msgSend)(item, @selector(setType:), type);
+    } else {
+        @try { [item setValue:type forKey:@"type"]; } @catch (__unused NSException *e) {}
+    }
+
+    // localizedTitle
+    if ([item respondsToSelector:@selector(setLocalizedTitle:)]) {
+        ((void (*)(id, SEL, id))objc_msgSend)(item, @selector(setLocalizedTitle:), title);
+    } else {
+        @try { [item setValue:title forKey:@"localizedTitle"]; } @catch (__unused NSException *e) {}
+    }
+
+    // localizedSubtitle
+    if (subtitle.length) {
+        if ([item respondsToSelector:@selector(setLocalizedSubtitle:)]) {
+            ((void (*)(id, SEL, id))objc_msgSend)(item, @selector(setLocalizedSubtitle:), subtitle);
+        } else {
+            @try { [item setValue:subtitle forKey:@"localizedSubtitle"]; } @catch (__unused NSException *e) {}
         }
-        if (iconObj) {
+    }
+
+    // bundleIdentifierToLaunch 留空 —— 我们自己处理，不让系统启动
+
+    id iconObj = DPMakeSystemIcon(systemImage);
+    if (iconObj) {
+        if ([item respondsToSelector:@selector(setIcon:)]) {
+            ((void (*)(id, SEL, id))objc_msgSend)(item, @selector(setIcon:), iconObj);
+        } else {
             @try { [item setValue:iconObj forKey:@"icon"]; } @catch (__unused NSException *e) {}
         }
     }
+
+    // userInfo 标记
+    NSDictionary *info = @{ @"dualpane": @YES };
+    if ([item respondsToSelector:@selector(setUserInfo:)]) {
+        ((void (*)(id, SEL, id))objc_msgSend)(item, @selector(setUserInfo:), info);
+    } else {
+        @try { [item setValue:info forKey:@"userInfo"]; } @catch (__unused NSException *e) {}
+    }
+
     return item;
 }
 
-static BOOL DPHandleShortcutType(NSString *type, NSString *bundleID, id iconView) {
+static BOOL DPIsOurShortcutType(NSString *type) {
     if (![type isKindOfClass:[NSString class]]) return NO;
+    return [type isEqualToString:@"com.dualpane.action.split"]
+        || [type isEqualToString:@"com.dualpane.action.float"];
+}
+
+static BOOL DPHandleShortcutType(NSString *type, NSString *bundleID, id iconView) {
+    if (!DPIsOurShortcutType(type)) return NO;
+
     DPPresentationMode mode = DPPresentationModeNone;
     if ([type isEqualToString:@"com.dualpane.action.split"]) {
         mode = DPPresentationModeSplit;
     } else if ([type isEqualToString:@"com.dualpane.action.float"]) {
         mode = DPPresentationModeFloating;
-    } else {
-        return NO;
     }
+
     NSString *bid = bundleID;
     if (!bid.length) bid = DPBundleIDFromIconView(iconView);
-    if (!bid.length) return YES;
+    if (!bid.length) return YES; // 吞掉，避免系统再处理坏项
     DPHaptic();
     [[DPWindowManager shared] handleActivationForBundleID:bid preferredMode:mode];
     return YES;
+}
+
+static NSArray *DPInjectedShortcutItems(void) {
+    id splitItem = DPMakeShortcutItem(@"com.dualpane.action.split",
+                                      @"分屏打开",
+                                      @"左右分屏多任务",
+                                      @"rectangle.split.2x1");
+    id floatItem = DPMakeShortcutItem(@"com.dualpane.action.float",
+                                      @"悬浮窗打开",
+                                      @"小窗叠在桌面上",
+                                      @"rectangle.on.rectangle");
+    NSMutableArray *out = [NSMutableArray array];
+    if (splitItem) [out addObject:splitItem];
+    if (floatItem) [out addObject:floatItem];
+    return out;
 }
 
 // ── SpringBoard 启动：装独立顶层窗 ─────────────────────────────────────────
@@ -176,28 +305,48 @@ static BOOL DPHandleShortcutType(NSString *type, NSString *bundleID, id iconView
 
 - (void)applicationDidFinishLaunching:(id)application {
     %orig;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         if (![DPSettings shared].isEnabled) return;
         [[DPWindowManager shared] install];
-        // 手势仍挂在主 window，作为备用
         UIWindow *keyWindow = nil;
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
         keyWindow = [UIApplication sharedApplication].keyWindow;
 #pragma clang diagnostic pop
+        if (!keyWindow) {
+            for (UIWindow *w in [UIApplication sharedApplication].windows) {
+                if (w.isKeyWindow) { keyWindow = w; break; }
+            }
+        }
         if (keyWindow) {
             [[DPGestureController shared] installOnView:keyWindow];
         }
+        NSLog(@"[DualPane] install complete, keyWindow=%@", keyWindow);
     });
+}
+
+- (void)frontDisplayDidChange:(id)arg {
+    %orig;
+    // 仅在我们处于悬浮/分屏模式时做补救，避免误伤
+    if ([DPWindowManager shared].mode == DPPresentationModeNone) return;
+
+    NSString *bid = DPBundleIDFromObject(arg);
+    if ([[DPWindowManager shared] shouldSuppressFullscreenForBundleID:bid]) {
+        NSLog(@"[DualPane] frontDisplay 补救回桌面: %@", bid);
+        DPGoHomeIfNeeded();
+    } else {
+        [[DPWindowManager shared] bringOverlayToFront];
+    }
 }
 
 %end
 
 // ── 拦截：托管中的 App 禁止切到全屏前台 ───────────────────────────────────
+// 注意：不要轻易 return NO，错误拦截会导致 SpringBoard 卡顿/死锁。
+// 策略：允许 transition 完成，再异步 goHome 补救。
 
 %hook SBMainWorkspace
 
-// iOS 15/16 常见事务执行入口（签名因版本略有差异，多写几个）
 - (BOOL)executeTransitionRequest:(id)request {
     NSString *bid = DPBundleIDFromObject(request);
     if (!bid.length) {
@@ -207,26 +356,20 @@ static BOOL DPHandleShortcutType(NSString *type, NSString *bundleID, id iconView
         } @catch (__unused NSException *e) {}
         @try {
             id dest = [request valueForKey:@"destinationApplication"];
-            if (!bid) bid = DPBundleIDFromObject(dest);
+            if (!bid.length) bid = DPBundleIDFromObject(dest);
         } @catch (__unused NSException *e) {}
         @try {
             id info = [request valueForKey:@"applicationSceneEntity"];
-            if (!bid) bid = DPBundleIDFromObject(info);
-            if (!bid) {
-                id app = [info valueForKey:@"application"];
-                bid = DPBundleIDFromObject(app);
-            }
+            if (!bid.length) bid = DPBundleIDFromObject(info);
         } @catch (__unused NSException *e) {}
     }
-    if ([[DPWindowManager shared] shouldSuppressFullscreenForBundleID:bid]) {
-        NSLog(@"[DualPane] 拦截全屏切换: %@", bid);
-        [[DPWindowManager shared] bringOverlayToFront];
-        return NO;
-    }
+
+    BOOL shouldSuppress = [[DPWindowManager shared] shouldSuppressFullscreenForBundleID:bid];
     BOOL ok = %orig;
-    // 若还是被切过去了，补救回桌面
-    if (ok && [[DPWindowManager shared] shouldSuppressFullscreenForBundleID:bid]) {
+    if (shouldSuppress && bid.length) {
+        NSLog(@"[DualPane] transition 后补救回桌面: %@", bid);
         DPGoHomeIfNeeded();
+        [[DPWindowManager shared] bringOverlayToFront];
     }
     return ok;
 }
@@ -240,47 +383,7 @@ static BOOL DPHandleShortcutType(NSString *type, NSString *bundleID, id iconView
 
 %end
 
-// 另一种事务入口
-%hook SBWorkspaceTransaction
-
-- (void)begin {
-    id selfObj = (id)self;
-    NSString *bid = nil;
-    @try { bid = DPBundleIDFromObject([selfObj valueForKey:@"application"]); } @catch (__unused NSException *e) {}
-    @try {
-        if (!bid) {
-            id req = [selfObj valueForKey:@"transitionRequest"];
-            bid = DPBundleIDFromObject(req);
-            if (!bid) bid = DPBundleIDFromObject([req valueForKey:@"application"]);
-        }
-    } @catch (__unused NSException *e) {}
-    if ([[DPWindowManager shared] shouldSuppressFullscreenForBundleID:bid]) {
-        NSLog(@"[DualPane] 拦截 WorkspaceTransaction: %@", bid);
-        return;
-    }
-    %orig;
-}
-
-%end
-
-// 前台 App 变化时：如果切到了我们托管的 App，强制回桌面并置顶悬浮窗
-%hook SpringBoard
-
-- (void)frontDisplayDidChange:(id)arg {
-    %orig;
-    NSString *bid = DPBundleIDFromObject(arg);
-    if ([[DPWindowManager shared] shouldSuppressFullscreenForBundleID:bid]) {
-        NSLog(@"[DualPane] frontDisplay 补救回桌面: %@", bid);
-        DPGoHomeIfNeeded();
-    } else {
-        // 切到别的 App 时也保持置顶窗
-        if ([DPWindowManager shared].mode != DPPresentationModeNone) {
-            [[DPWindowManager shared] bringOverlayToFront];
-        }
-    }
-}
-
-%end
+// 不再 hook SBWorkspaceTransaction.begin 硬 return —— 那是卡顿主因之一
 
 // ── 图标：上滑 + 长按菜单 ─────────────────────────────────────────────────
 
@@ -290,13 +393,13 @@ static BOOL DPHandleShortcutType(NSString *type, NSString *bundleID, id iconView
     %orig;
     UIView *view = (UIView *)self;
     if (view.window) {
-        DPAttachIconSwipe(view);
+        DPAttachIconGestures(view);
     }
 }
 
 - (void)setIcon:(id)icon {
     %orig;
-    DPAttachIconSwipe((UIView *)self);
+    DPAttachIconGestures((UIView *)self);
 }
 
 - (id)applicationShortcutItems {
@@ -307,16 +410,28 @@ static BOOL DPHandleShortcutType(NSString *type, NSString *bundleID, id iconView
     NSString *bid = DPBundleIDFromIconView((id)self);
     if (!bid.length) return items;
 
-    id splitItem = DPMakeShortcutItem(@"com.dualpane.action.split", @"分屏打开", @"rectangle.split.2x1");
-    id floatItem = DPMakeShortcutItem(@"com.dualpane.action.float", @"悬浮窗打开", @"rectangle.on.rectangle");
-    if (!splitItem && !floatItem) return items;
+    NSArray *ours = DPInjectedShortcutItems();
+    if (ours.count == 0) return items;
 
     NSMutableArray *out = items ? [items mutableCopy] : [NSMutableArray array];
-    if (floatItem) [out insertObject:floatItem atIndex:0];
-    if (splitItem) [out insertObject:splitItem atIndex:0];
+    // 去重：避免重复注入
+    NSMutableIndexSet *remove = [NSMutableIndexSet indexSet];
+    for (NSUInteger i = 0; i < out.count; i++) {
+        id it = out[i];
+        NSString *t = nil;
+        @try { t = [it valueForKey:@"type"]; } @catch (__unused NSException *e) {}
+        if (DPIsOurShortcutType(t)) [remove addIndex:i];
+    }
+    [out removeObjectsAtIndexes:remove];
+
+    // 插到最前
+    for (NSInteger i = (NSInteger)ours.count - 1; i >= 0; i--) {
+        [out insertObject:ours[(NSUInteger)i] atIndex:0];
+    }
     return out;
 }
 
+// iOS 13+ 部分路径
 - (void)activateShortcut:(id)item withBundleIdentifier:(NSString *)bundleID forIconView:(id)iconView {
     NSString *type = nil;
     @try { type = [item valueForKey:@"type"]; } @catch (__unused NSException *e) {}
