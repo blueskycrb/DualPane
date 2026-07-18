@@ -1,0 +1,11 @@
+Package: com.dualpane.tweak
+Name: DualPane
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: Floating window + true split-screen multitasking for iOS 15–16.5.1 (Bootstrap / rootless)
+Maintainer: DualPane Contributors
+Author: DualPane Contributors
+Section: Tweaks
+Depends: firmware (>= 15.0), mobilesubstrate (>= 0.9.7000), preferenceloader
+Conflicts:
+Homepage: https://github.com/blueskycrb/DualPane

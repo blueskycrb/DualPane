@@ -1,0 +1,13 @@
+.theos/
+packages/
+*.deb
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/
+xcuserdata/
+DerivedData/
+*.xcuserstate
+.clang-format
+obj/
