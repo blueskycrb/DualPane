@@ -244,18 +244,18 @@ static BOOL DPHandleShortcutType(NSString *type, NSString *bundleID, id iconView
 %hook SBWorkspaceTransaction
 
 - (void)begin {
+    id selfObj = (id)self;
     NSString *bid = nil;
-    @try { bid = DPBundleIDFromObject([self valueForKey:@"application"]); } @catch (__unused NSException *e) {}
+    @try { bid = DPBundleIDFromObject([selfObj valueForKey:@"application"]); } @catch (__unused NSException *e) {}
     @try {
         if (!bid) {
-            id req = [self valueForKey:@"transitionRequest"];
+            id req = [selfObj valueForKey:@"transitionRequest"];
             bid = DPBundleIDFromObject(req);
             if (!bid) bid = DPBundleIDFromObject([req valueForKey:@"application"]);
         }
     } @catch (__unused NSException *e) {}
     if ([[DPWindowManager shared] shouldSuppressFullscreenForBundleID:bid]) {
         NSLog(@"[DualPane] 拦截 WorkspaceTransaction: %@", bid);
-        // 不 begin
         return;
     }
     %orig;
