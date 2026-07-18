@@ -1,4 +1,5 @@
-export TARGET = iphone:clang:16.5:15.0
+# latest = whatever SDK Theos/Xcode provides; deploy target 15.0 for Bootstrap range
+export TARGET = iphone:clang:latest:15.0
 export ARCHS = arm64 arm64e
 export THEOS_PACKAGE_SCHEME = rootless
 
@@ -18,8 +19,9 @@ DualPane_FILES = \
 	Sources/DPOverlayController.m
 
 DualPane_CFLAGS = -fobjc-arc -Wno-unused-variable -Wno-deprecated-declarations
+# FrontBoard etc. are resolved at runtime via NSClassFromString — do not link private frameworks
+# (they are absent from public SDKs and break CI / clean Theos installs).
 DualPane_FRAMEWORKS = UIKit Foundation CoreGraphics QuartzCore
-DualPane_PRIVATE_FRAMEWORKS = SpringBoardServices FrontBoard FrontBoardServices
 DualPane_LIBRARIES =
 
 SUBPROJECTS += Preferences

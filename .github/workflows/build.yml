@@ -1,0 +1,76 @@
+name: Build DualPane
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    name: Theos rootless package
+    runs-on: macos-14
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          # Prefer a recent Xcode; fall back gracefully
+          sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer 2>/dev/null \
+            || sudo xcode-select -s /Applications/Xcode_15.3.app/Contents/Developer 2>/dev/null \
+            || sudo xcode-select -s /Applications/Xcode_15.2.app/Contents/Developer 2>/dev/null \
+            || sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          xcodebuild -version
+          xcrun --show-sdk-path --sdk iphoneos
+
+      - name: Install build tools
+        run: |
+          brew list ldid &>/dev/null || brew install ldid
+          brew list make &>/dev/null || brew install make
+          # dpkg for packaging .deb (Theos package step)
+          brew list dpkg &>/dev/null || brew install dpkg
+
+      - name: Install Theos
+        run: |
+          set -euo pipefail
+          git clone --depth=1 --recurse-submodules https://github.com/theos/theos.git "$HOME/theos"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+          echo "$HOME/theos/bin" >> "$GITHUB_PATH"
+          # Confirm
+          ls "$HOME/theos/makefiles/common.mk"
+          "$HOME/theos/bin/nic.pl" --version || true
+
+      - name: Build package
+        env:
+          THEOS: ${{ env.THEOS }}
+        run: |
+          set -euo pipefail
+          export THEOS="${THEOS:-$HOME/theos}"
+          echo "THEOS=$THEOS"
+          echo "SDK: $(xcrun --show-sdk-path --sdk iphoneos)"
+          # FINALPACKAGE=1 → release strip + proper packaging
+          gmake package FINALPACKAGE=1 -j"$(sysctl -n hw.ncpu)"
+          echo "---- packages ----"
+          ls -lah packages/
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DualPane-deb
+          path: packages/*.deb
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach deb to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: packages/*.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

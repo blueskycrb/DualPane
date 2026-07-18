@@ -56,20 +56,33 @@ On a real Bootstrap device, open the target app once (so a scene exists), then r
 
 ## Build
 
-```bash
-# one-time
-export THEOS=~/theos
-# optional rootless scheme is already set in the Makefile
+### Option A — GitHub Actions (recommended)
 
+Every push to `main` builds a rootless `.deb` on `macos-14` with Theos:
+
+1. Open **Actions → Build DualPane**
+2. Download the **DualPane-deb** artifact, or
+3. Create a Release (`v1.0.0`) — the workflow attaches the `.deb` automatically
+
+Manual trigger: Actions → Build DualPane → **Run workflow**.
+
+```bash
+# from a checked-out clone, after CI finishes:
+gh run download -n DualPane-deb
+```
+
+### Option B — Local Theos
+
+```bash
+export THEOS=~/theos
 cd DualPane
 make package FINALPACKAGE=1
 # → packages/com.dualpane.tweak_1.0.0_iphoneos-arm64.deb
 ```
 
-Install:
+Install on device:
 
 ```bash
-# scp the deb to the device, then:
 dpkg -i com.dualpane.tweak_1.0.0_iphoneos-arm64.deb
 sbreload   # or respring from Settings → DualPane
 ```
