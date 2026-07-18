@@ -2,24 +2,21 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// Lightweight host for a second application scene.
-///
-/// On a fully instrumented device this talks to FrontBoard / FBSScene to
-/// clone an application scene into a UIView. When private APIs are unavailable
-/// (simulator / incomplete SDK headers), it falls back to a placeholder that
-/// still lets the chrome, gestures, and layout pipeline be exercised.
+/// 把目标 App 的画面嵌进 UIView。
+/// 依次尝试：SceneHandle 视图 → FBSceneHostManager → 图层宿主 → 快照回退。
 @interface DPSceneHost : NSObject
 
 @property (nonatomic, copy, readonly) NSString *bundleID;
 @property (nonatomic, strong, readonly) UIView *view;
 @property (nonatomic, assign, readonly, getter=isLive) BOOL live;
+@property (nonatomic, copy, readonly, nullable) NSString *statusText;
 
 + (BOOL)isSceneHostingAvailable;
 
 - (instancetype)initWithBundleID:(NSString *)bundleID;
 - (void)setHostedFrame:(CGRect)frame;
 - (void)setSuspended:(BOOL)suspended;
-- (void)retryAttach;   // 进程起来后再次尝试挂接真实画面
+- (void)retryAttach;
 - (void)invalidate;
 
 @end

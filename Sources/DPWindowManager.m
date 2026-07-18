@@ -6,6 +6,7 @@
 #import "DPSettings.h"
 #import "DPOverlayController.h"
 #import "DPPassthroughWindow.h"
+#import <objc/message.h>
 
 @interface DPWindowManager ()
 @property (nonatomic, strong, nullable) DPPassthroughWindow *overlayWindow;
@@ -16,6 +17,7 @@
 @property (nonatomic, strong, nullable) DPAppPicker *picker;
 @property (nonatomic, strong, nullable) DPOverlayController *modeChooser;
 @property (nonatomic, strong) NSMutableSet<NSString *> *mutableHostedBundleIDs;
+@property (nonatomic, strong) NSMutableSet<NSString *> *launchAllowlist; // 临时允许全屏一次
 @property (nonatomic, assign) BOOL suppressLaunch;
 @end
 
@@ -35,6 +37,7 @@
     if (self) {
         _mutableFloatingWindows = [NSMutableArray array];
         _mutableHostedBundleIDs = [NSMutableSet set];
+        _launchAllowlist = [NSMutableSet set];
         _mode = DPPresentationModeNone;
         _suppressLaunch = NO;
         [[NSNotificationCenter defaultCenter] addObserver:self
@@ -337,21 +340,12 @@
 
     [[DPSettings shared] setLastSecondaryBundleID:bundleID];
 
-    // 后台预热进程（不切换前台）。延迟再尝试挂 scene。
-    [self warmUpAppInBackground:bundleID];
     __weak DPFloatingWindow *weakWindow = window;
     __weak DPSceneHost *weakHost = host;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [weakHost retryAttach];
-        if (weakWindow) [weakWindow attachSceneHost:weakHost];
+    [self ensureSceneThenAttach:bundleID host:host onAttached:^{
+        if (weakWindow && weakHost) [weakWindow attachSceneHost:weakHost];
         [weakSelf bringOverlayToFront];
-    });
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [weakHost retryAttach];
-        if (weakWindow) [weakWindow attachSceneHost:weakHost];
-        [weakSelf bringOverlayToFront];
-        weakSelf.suppressLaunch = NO;
-    });
+    }];
 
     NSLog(@"[DualPane] 打开悬浮窗 %@", bundleID);
 }
@@ -422,19 +416,20 @@
     [[DPSettings shared] setLastSecondaryBundleID:secondary];
     [self bringOverlayToFront];
 
-    [self warmUpAppInBackground:secondary];
     __weak DPSceneHost *weakSHost = sHost;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [weakSHost retryAttach];
-        [weakSelf.splitManager attachSecondaryHost:weakSHost];
+    __weak DPSceneHost *weakPHost = pHost;
+    // 副屏必须挂上真实 App
+    [self ensureSceneThenAttach:secondary host:sHost onAttached:^{
+        if (weakSHost) [weakSelf.splitManager attachSecondaryHost:weakSHost];
         [weakSelf bringOverlayToFront];
-    });
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [weakSHost retryAttach];
-        [weakSelf.splitManager attachSecondaryHost:weakSHost];
-        [weakSelf bringOverlayToFront];
-        weakSelf.suppressLaunch = NO;
-    });
+    }];
+    // 主屏若不是 SpringBoard，同样尝试
+    if (primary.length && ![primary isEqualToString:@"com.apple.springboard"]) {
+        [self ensureSceneThenAttach:primary host:pHost onAttached:^{
+            if (weakPHost) [weakSelf.splitManager attachPrimaryHost:weakPHost];
+            [weakSelf bringOverlayToFront];
+        }];
+    }
 
     NSLog(@"[DualPane] 打开分屏 primary=%@ secondary=%@", primary, secondary);
 }
@@ -501,13 +496,96 @@
 
 - (BOOL)shouldSuppressFullscreenForBundleID:(NSString *)bundleID {
     if (!bundleID.length) return NO;
+    // 临时放行：为了创建 scene 允许启动一次
+    if ([self.launchAllowlist containsObject:bundleID]) {
+        return NO;
+    }
     if (self.mode == DPPresentationModeNone && self.mutableHostedBundleIDs.count == 0) return NO;
     if ([self.mutableHostedBundleIDs containsObject:bundleID]) return YES;
-    // 抑制窗口打开后的一小段抢焦点
     if (self.suppressLaunch && [bundleID isEqualToString:[DPSettings shared].lastSecondaryBundleID]) {
         return YES;
     }
     return NO;
+}
+
+- (void)allowNextLaunchForBundleID:(NSString *)bundleID {
+    if (bundleID.length) [self.launchAllowlist addObject:bundleID];
+}
+
+/// 若还没挂上 live 画面：允许启动一次 App → 稍等 → 回桌面 → 多次重试挂接
+- (void)ensureSceneThenAttach:(NSString *)bundleID
+                         host:(DPSceneHost *)host
+                   onAttached:(void (^)(void))onAttached {
+    if (!bundleID.length || !host) return;
+    __weak typeof(self) weakSelf = self;
+    __weak DPSceneHost *weakHost = host;
+
+    void (^retryFewTimes)(void) = ^{
+        NSArray *delays = @[@0.3, @0.8, @1.5, @2.5, @4.0];
+        for (NSNumber *d in delays) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(d.doubleValue * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                [weakHost retryAttach];
+                if (onAttached) onAttached();
+                [weakSelf bringOverlayToFront];
+                if (weakHost.isLive) {
+                    weakSelf.suppressLaunch = NO;
+                }
+            });
+        }
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            weakSelf.suppressLaunch = NO;
+        });
+    };
+
+    // 先直接试
+    [host retryAttach];
+    if (host.isLive) {
+        if (onAttached) onAttached();
+        self.suppressLaunch = NO;
+        return;
+    }
+
+    // 没挂上：放行一次启动，把进程拉起来（scene 才会存在）
+    [self.launchAllowlist addObject:bundleID];
+    self.suppressLaunch = NO;
+    [self openApplicationForeground:bundleID];
+
+    // 0.9s 后回桌面，重新压制全屏，并开始挂接
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.9 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [weakSelf.launchAllowlist removeObject:bundleID];
+        weakSelf.suppressLaunch = YES;
+        [weakSelf.mutableHostedBundleIDs addObject:bundleID];
+        [weakSelf goHome];
+        [weakSelf bringOverlayToFront];
+        retryFewTimes();
+    });
+}
+
+- (void)openApplicationForeground:(NSString *)bundleID {
+    Class LSApplicationWorkspace = NSClassFromString(@"LSApplicationWorkspace");
+    if (!LSApplicationWorkspace) return;
+    id workspace = ((id (*)(id, SEL))objc_msgSend)(LSApplicationWorkspace, @selector(defaultWorkspace));
+    SEL sel = NSSelectorFromString(@"openApplicationWithBundleID:");
+    if ([workspace respondsToSelector:sel]) {
+        ((void (*)(id, SEL, id))objc_msgSend)(workspace, sel, bundleID);
+        NSLog(@"[DualPane] 临时前台启动以创建 scene: %@", bundleID);
+    }
+}
+
+- (void)goHome {
+    Class SBUIController = NSClassFromString(@"SBUIController");
+    if (!SBUIController) return;
+    id ui = ((id (*)(id, SEL))objc_msgSend)(SBUIController, @selector(sharedInstance));
+    for (NSString *name in @[@"handleHomeButtonSinglePressUp", @"clickedMenuButton", @"_handleButtonEventToExitSwitcher:"]) {
+        SEL sel = NSSelectorFromString(name);
+        if ([ui respondsToSelector:sel]) {
+            if ([name hasSuffix:@":"]) continue;
+            ((void (*)(id, SEL))objc_msgSend)(ui, sel);
+            NSLog(@"[DualPane] 回桌面 via %@", name);
+            break;
+        }
+    }
+    [self bringOverlayToFront];
 }
 
 #pragma mark - Helpers
@@ -551,32 +629,6 @@
         }
     }
     return nil;
-}
-
-/// 后台预热：不再调用会切前台的 openApplication。
-/// 真实画面依赖用户曾经打开过该 App；占位页可正常使用悬浮/分屏壳。
-- (void)warmUpAppInBackground:(NSString *)bundleID {
-    if (!bundleID.length) return;
-    // 尝试通过 SpringBoard 的 application 对象“预热”但不激活
-    Class SBAppController = NSClassFromString(@"SBApplicationController");
-    if (!SBAppController) return;
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-    id controller = [SBAppController performSelector:@selector(sharedInstance)];
-#pragma clang diagnostic pop
-    id app = nil;
-    if ([controller respondsToSelector:NSSelectorFromString(@"applicationWithBundleIdentifier:")]) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-        app = [controller performSelector:NSSelectorFromString(@"applicationWithBundleIdentifier:") withObject:bundleID];
-#pragma clang diagnostic pop
-    }
-    if (!app) return;
-    // 某些版本有 createRunningBoardAssertion / awake 类方法；全部 best-effort
-    if ([app respondsToSelector:NSSelectorFromString(@"_setActivationSettings:")]) {
-        // skip — 避免误激活
-    }
-    NSLog(@"[DualPane] 预热引用 %@（不切换前台）", bundleID);
 }
 
 - (void)settingsChanged {

@@ -41,6 +41,9 @@ typedef NS_ENUM(NSInteger, DPPresentationMode) {
 - (BOOL)shouldSuppressFullscreenForBundleID:(nullable NSString *)bundleID;
 - (void)bringOverlayToFront;
 
+/// 允许下一次该 bundle 全屏启动（用于先拉起进程再回桌面挂画面）
+- (void)allowNextLaunchForBundleID:(NSString *)bundleID;
+
 @end
 
 NS_ASSUME_NONNULL_END
