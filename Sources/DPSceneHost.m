@@ -311,11 +311,20 @@
 
 - (void)setSuspended:(BOOL)suspended {
     if (!self.live || !self.scene) return;
-    // Background / foreground the hosted scene when possible
     if ([self.scene respondsToSelector:NSSelectorFromString(@"updateSettings:withTransitionBlock:")]) {
-        // left as best-effort; full implementation needs FBSSceneTransitionContext
+        // best-effort
     }
     self.view.alpha = suspended ? 0.0 : 1.0;
+}
+
+- (void)retryAttach {
+    if (self.live) return;
+    [self attemptLiveSceneHost];
+    if (self.live && self.placeholder) {
+        [self.placeholder removeFromSuperview];
+        self.placeholder = nil;
+        self.hintLabel.text = @"已连接应用画面";
+    }
 }
 
 - (void)invalidate {

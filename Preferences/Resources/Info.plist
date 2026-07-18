@@ -4,8 +4,8 @@
 	CFBundleIdentifier = "com.dualpane.tweak.prefs";
 	CFBundleInfoDictionaryVersion = "6.0";
 	CFBundlePackageType = "BNDL";
-	CFBundleShortVersionString = "1.0.1";
+	CFBundleShortVersionString = "1.0.2";
 	CFBundleSignature = "????";
-	CFBundleVersion = "1.0.1";
+	CFBundleVersion = "1.0.2";
 	NSPrincipalClass = "DPRootListController";
 }

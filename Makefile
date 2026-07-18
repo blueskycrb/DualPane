@@ -16,7 +16,8 @@ DualPane_FILES = \
 	Sources/DPGestureController.m \
 	Sources/DPAppPicker.m \
 	Sources/DPSceneHost.m \
-	Sources/DPOverlayController.m
+	Sources/DPOverlayController.m \
+	Sources/DPPassthroughWindow.m
 
 DualPane_CFLAGS = -fobjc-arc -Wno-unused-variable -Wno-deprecated-declarations
 # FrontBoard etc. are resolved at runtime via NSClassFromString — do not link private frameworks

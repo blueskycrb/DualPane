@@ -1,6 +1,6 @@
 Package: com.dualpane.tweak
 Name: 分屏助手
-Version: 1.0.1
+Version: 1.0.2
 Architecture: iphoneos-arm64
 Description: Bootstrap 分屏/悬浮窗插件（图标上滑、长按菜单触发），适用于 iOS 15–16.5.1 rootless
 Maintainer: DualPane Contributors

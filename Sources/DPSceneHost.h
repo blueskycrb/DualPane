@@ -19,6 +19,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)initWithBundleID:(NSString *)bundleID;
 - (void)setHostedFrame:(CGRect)frame;
 - (void)setSuspended:(BOOL)suspended;
+- (void)retryAttach;   // 进程起来后再次尝试挂接真实画面
 - (void)invalidate;
 
 @end
