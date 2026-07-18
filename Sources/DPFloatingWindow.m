@@ -152,7 +152,8 @@ static const CGFloat kDPMinHeight = 220.0;
         }
     }
     NSArray *parts = [bundleID componentsSeparatedByString:@"."];
-    return parts.lastObject.capitalizedString ?: bundleID;
+    NSString *last = parts.lastObject;
+    return last.length ? last.capitalizedString : bundleID;
 }
 
 #pragma mark - Gestures

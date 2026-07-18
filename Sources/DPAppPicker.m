@@ -214,7 +214,8 @@
             if ([black containsObject:bid]) continue;
             DPAppItem *item = [[DPAppItem alloc] init];
             item.bundleID = bid;
-            item.name = [[bid componentsSeparatedByString:@"."] lastObject].capitalizedString;
+            NSString *last = [[bid componentsSeparatedByString:@"."] lastObject];
+            item.name = last.length ? last.capitalizedString : bid;
             item.favorite = [favs containsObject:bid];
             item.icon = [self placeholderIcon];
             [items addObject:item];
