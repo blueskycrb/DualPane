@@ -180,8 +180,9 @@ static BOOL DPHandleShortcutType(NSString *type, NSString *bundleID, id iconView
 
 - (void)didMoveToWindow {
     %orig;
-    if (self.window) {
-        DPAttachIconSwipe((UIView *)self);
+    UIView *view = (UIView *)self;
+    if (view.window) {
+        DPAttachIconSwipe(view);
     }
 }
 
@@ -195,7 +196,7 @@ static BOOL DPHandleShortcutType(NSString *type, NSString *bundleID, id iconView
     if (![DPSettings shared].isEnabled) return items;
     if (![[DPSettings shared] isGestureEnabled:DPActivationGestureIconLongPress]) return items;
 
-    NSString *bid = DPBundleIDFromIconView(self);
+    NSString *bid = DPBundleIDFromIconView((id)self);
     if (!bid.length) return items;
 
     id splitItem = DPMakeShortcutItem(@"com.dualpane.action.split", @"分屏打开", @"rectangle.split.2x1");
@@ -212,7 +213,7 @@ static BOOL DPHandleShortcutType(NSString *type, NSString *bundleID, id iconView
 - (void)activateShortcut:(id)item withBundleIdentifier:(NSString *)bundleID forIconView:(id)iconView {
     NSString *type = nil;
     @try { type = [item valueForKey:@"type"]; } @catch (__unused NSException *e) {}
-    if (DPHandleShortcutType(type, bundleID, iconView ?: self)) {
+    if (DPHandleShortcutType(type, bundleID, iconView ?: (id)self)) {
         return;
     }
     %orig;
