@@ -69,23 +69,18 @@
     if (![DPSettings shared].isEnabled) return;
 
     DPDefaultMode mode = [DPSettings shared].defaultMode;
-    switch (mode) {
-        case DPDefaultModeFloating:
-            [self presentAppPickerWithCompletion:^(NSString *bundleID) {
-                if (bundleID) [self openFloatingWithBundleID:bundleID];
-            }];
-            break;
-        case DPDefaultModeSplit:
-            [self presentAppPickerWithCompletion:^(NSString *bundleID) {
-                if (!bundleID) return;
-                NSString *primary = [self foregroundBundleID] ?: @"com.apple.springboard";
-                [self openSplitWithPrimary:primary secondary:bundleID];
-            }];
-            break;
-        case DPDefaultModeAsk:
-        default:
-            [self presentModeChooser];
-            break;
+    if (mode == DPDefaultModeFloating) {
+        [self presentAppPickerWithCompletion:^(NSString *bundleID) {
+            if (bundleID) [self openFloatingWithBundleID:bundleID];
+        }];
+    } else if (mode == DPDefaultModeSplit) {
+        [self presentAppPickerWithCompletion:^(NSString *bundleID) {
+            if (!bundleID) return;
+            NSString *primary = [self foregroundBundleID] ?: @"com.apple.springboard";
+            [self openSplitWithPrimary:primary secondary:bundleID];
+        }];
+    } else {
+        [self presentModeChooser];
     }
 }
 
