@@ -1,5 +1,5 @@
-#import <Preferences/PSListController.h>
-#import <Preferences/PSSpecifier.h>
+#import "vendor/include/Preferences/PSListController.h"
+#import "vendor/include/Preferences/PSSpecifier.h"
 #import <spawn.h>
 #import <notify.h>
 

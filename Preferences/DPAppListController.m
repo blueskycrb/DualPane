@@ -1,5 +1,5 @@
-#import <Preferences/PSListController.h>
-#import <Preferences/PSSpecifier.h>
+#import "vendor/include/Preferences/PSListController.h"
+#import "vendor/include/Preferences/PSSpecifier.h"
 #import <notify.h>
 
 @interface DPAppListController : PSListController
@@ -11,7 +11,6 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    // listType comes from the specifier that pushed us
     self.listType = [self.specifier propertyForKey:@"listType"] ?: @"favorites";
     self.title = [self.listType isEqualToString:@"favorites"] ? @"Favorites" : @"Blacklist";
 

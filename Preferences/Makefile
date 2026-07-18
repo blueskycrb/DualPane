@@ -8,10 +8,11 @@ BUNDLE_NAME = DualPanePrefs
 
 DualPanePrefs_FILES = DPRootListController.m DPAppListController.m
 DualPanePrefs_FRAMEWORKS = UIKit
-DualPanePrefs_PRIVATE_FRAMEWORKS = Preferences
+# Preferences.framework is private and missing from public SDKs.
+# Compile against vendored stubs; resolve the real framework at runtime in Settings.
+DualPanePrefs_CFLAGS = -fobjc-arc -Wno-unused-variable -Ivendor/include
+DualPanePrefs_LDFLAGS = -undefined dynamic_lookup
 DualPanePrefs_INSTALL_PATH = /Library/PreferenceBundles
-DualPanePrefs_CFLAGS = -fobjc-arc
-DualPanePrefs_LIBRARIES =
 
 include $(THEOS_MAKE_PATH)/bundle.mk
 
