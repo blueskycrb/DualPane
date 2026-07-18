@@ -67,7 +67,7 @@
 			<key>label</key>
 			<string>触发方式（推荐）</string>
 			<key>footerText</key>
-			<string>主屏幕对图标操作最方便：上滑图标直接打开；长按图标菜单里选「分屏打开」或「悬浮窗打开」。</string>
+			<string>主屏幕对图标操作最方便：上滑图标直接打开；长按图标菜单里选「分屏打开」或「悬浮窗打开」。若菜单里没有这两项，优先用图标上滑，或开启边缘滑动。</string>
 		</dict>
 		<dict>
 			<key>cell</key>
