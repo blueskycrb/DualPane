@@ -3,7 +3,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 /// 把目标 App 的画面嵌进 UIView。
-/// 优先使用 mainScene 的 FBSceneHostManager，失败时显示快照回退。
+/// 使用 iOS scene layer container / FBSceneHostManager 嵌入实时画面。
 @interface DPSceneHost : NSObject
 
 @property (nonatomic, copy, readonly) NSString *bundleID;

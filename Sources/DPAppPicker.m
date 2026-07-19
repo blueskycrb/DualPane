@@ -1,6 +1,15 @@
 #import "DPAppPicker.h"
 #import "DPSettings.h"
 
+static id DPAppValue(id object, NSString *key) {
+    if (!object || !key.length) return nil;
+    @try {
+        return [object valueForKey:key];
+    } @catch (__unused NSException *e) {
+        return nil;
+    }
+}
+
 @interface DPAppItem : NSObject
 @property (nonatomic, copy) NSString *bundleID;
 @property (nonatomic, copy) NSString *name;
@@ -73,11 +82,13 @@
 @property (nonatomic, strong) UICollectionView *collectionView;
 @property (nonatomic, strong) UIButton *cancelButton;
 @property (nonatomic, strong) UILabel *titleLabel;
+@property (nonatomic, strong) UIActivityIndicatorView *loadingIndicator;
 @property (nonatomic, strong) NSArray<DPAppItem *> *allItems;
 @property (nonatomic, strong) NSArray<DPAppItem *> *filteredItems;
 @property (nonatomic, copy) NSArray<NSString *> *favorites;
 @property (nonatomic, copy) NSArray<NSString *> *blacklist;
 @property (nonatomic, copy, nullable) void (^completion)(NSString * _Nullable);
+@property (nonatomic, assign) NSUInteger loadGeneration;
 @end
 
 @implementation DPAppPicker
@@ -163,6 +174,16 @@
     [self.collectionView registerClass:[DPAppPickerCell class] forCellWithReuseIdentifier:@"cell"];
     [self.sheet addSubview:self.collectionView];
 
+    self.loadingIndicator = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
+    self.loadingIndicator.color = [UIColor whiteColor];
+    self.loadingIndicator.center = CGPointMake(CGRectGetMidX(self.collectionView.bounds),
+                                                CGRectGetMidY(self.collectionView.bounds));
+    self.loadingIndicator.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin |
+                                             UIViewAutoresizingFlexibleRightMargin |
+                                             UIViewAutoresizingFlexibleTopMargin |
+                                             UIViewAutoresizingFlexibleBottomMargin;
+    [self.collectionView addSubview:self.loadingIndicator];
+
     [self loadApps];
 
     [UIView animateWithDuration:0.32 delay:0 usingSpringWithDamping:0.9 initialSpringVelocity:0.4 options:0 animations:^{
@@ -174,6 +195,34 @@
 }
 
 - (void)loadApps {
+    NSUInteger generation = ++self.loadGeneration;
+    [self.loadingIndicator startAnimating];
+    self.allItems = @[];
+    self.filteredItems = @[];
+    [self.collectionView reloadData];
+
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        __strong typeof(weakSelf) self2 = weakSelf;
+        if (!self2) return;
+        NSArray<DPAppItem *> *items = [self2 buildAppItems];
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(weakSelf) self3 = weakSelf;
+            if (!self3 || generation != self3.loadGeneration || !self3.container) return;
+            UIImage *placeholder = [self3 placeholderIcon];
+            for (DPAppItem *item in items) {
+                if (!item.icon) item.icon = placeholder;
+            }
+            self3.allItems = items;
+            self3.filteredItems = items;
+            [self3.loadingIndicator stopAnimating];
+            [self3.collectionView reloadData];
+        });
+    });
+}
+
+- (NSArray<DPAppItem *> *)buildAppItems {
     NSMutableArray<DPAppItem *> *items = [NSMutableArray array];
     NSSet *black = [NSSet setWithArray:self.blacklist];
     NSSet *favs = [NSSet setWithArray:self.favorites];
@@ -181,18 +230,18 @@
     // Enumerate installed user apps via LSApplicationWorkspace
     NSArray *apps = [self installedUserApplications];
     for (id proxy in apps) {
-        NSString *bid = [proxy valueForKey:@"applicationIdentifier"] ?: [proxy valueForKey:@"bundleIdentifier"];
+        NSString *bid = DPAppValue(proxy, @"applicationIdentifier") ?: DPAppValue(proxy, @"bundleIdentifier");
         if (!bid.length) continue;
         if ([black containsObject:bid]) continue;
         // Skip SpringBoard / system hidden
         if ([bid hasPrefix:@"com.apple.springboard"]) continue;
-        if ([[proxy valueForKey:@"appTags"] containsObject:@"hidden"]) continue;
+        if ([DPAppValue(proxy, @"appTags") containsObject:@"hidden"]) continue;
 
         DPAppItem *item = [[DPAppItem alloc] init];
         item.bundleID = bid;
-        item.name = [proxy valueForKey:@"localizedName"] ?: bid;
+        item.name = DPAppValue(proxy, @"localizedName") ?: bid;
         item.favorite = [favs containsObject:bid];
-        item.icon = [self iconForProxy:proxy] ?: [self placeholderIcon];
+        item.icon = [self iconForProxy:proxy];
         [items addObject:item];
     }
 
@@ -217,14 +266,11 @@
             NSString *last = [[bid componentsSeparatedByString:@"."] lastObject];
             item.name = last.length ? last.capitalizedString : bid;
             item.favorite = [favs containsObject:bid];
-            item.icon = [self placeholderIcon];
             [items addObject:item];
         }
     }
 
-    self.allItems = items;
-    self.filteredItems = items;
-    [self.collectionView reloadData];
+    return [items copy];
 }
 
 - (NSArray *)installedUserApplications {
@@ -254,7 +300,7 @@
 - (UIImage *)iconForProxy:(id)proxy {
     // Best-effort; many icon APIs need private headers
     if ([proxy respondsToSelector:NSSelectorFromString(@"icon")]) {
-        id icon = [proxy valueForKey:@"icon"];
+        id icon = DPAppValue(proxy, @"icon");
         if ([icon isKindOfClass:[UIImage class]]) return icon;
     }
     return nil;
@@ -320,6 +366,8 @@
 }
 
 - (void)dismissAnimated:(BOOL)animated {
+    self.loadGeneration += 1;
+    [self.loadingIndicator stopAnimating];
     void (^cleanup)(void) = ^{
         [self.container removeFromSuperview];
         self.container = nil;

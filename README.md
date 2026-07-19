@@ -52,7 +52,7 @@ Live embedding of a second app’s UI into a `UIView` requires **SpringBoard / F
 1. If private classes exist and a scene for the target bundle is found → live host view is attached.
 2. Otherwise → a branded **placeholder** (icon + name + hint) is shown so chrome, gestures, and layout can still be exercised.
 
-On a real Bootstrap device, DualPane launches the target app once when needed to create its scene, returns home, and then attaches the live host view.
+On a real Bootstrap device, DualPane launches the target app suspended, waits briefly for its scene, foregrounds that scene without a full-screen transition, and attaches a live layer container.
 
 ## Build
 
@@ -73,13 +73,13 @@ Manual trigger: Actions → Build DualPane → **Run workflow**.
 export THEOS=~/theos
 cd DualPane
 make package FINALPACKAGE=1
-# → packages/com.dualpane.tweak_1.0.5_iphoneos-arm64.deb
+# → packages/com.dualpane.tweak_1.0.6_iphoneos-arm64.deb
 ```
 
 Install on device:
 
 ```bash
-dpkg -i com.dualpane.tweak_1.0.5_iphoneos-arm64.deb
+dpkg -i com.dualpane.tweak_1.0.6_iphoneos-arm64.deb
 sbreload   # or respring from Settings → DualPane
 ```
 
@@ -169,4 +169,4 @@ dpkg -i com.dualpane.tweak_*.deb && sbreload
 
 **Repo:** https://github.com/blueskycrb/DualPane  
 **Package:** `com.dualpane.tweak`  
-**Version:** 1.0.5
+**Version:** 1.0.6

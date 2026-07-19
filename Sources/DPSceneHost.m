@@ -22,6 +22,9 @@
 @property (nonatomic, assign) BOOL sceneSettingsUpdateScheduled;
 @property (nonatomic, assign) NSUInteger sceneSettingsGeneration;
 @property (nonatomic, assign) CGSize lastCommittedSceneSize;
+@property (nonatomic, strong, nullable) dispatch_source_t keepAliveTimer;
+@property (nonatomic, strong, nullable) id processAssertion;
+@property (nonatomic, assign) BOOL processAssertionAttempted;
 @property (nonatomic, strong, nullable) id retainedSceneController; // 防止 VC 被释放
 @end
 
@@ -176,6 +179,7 @@
 
 - (NSArray *)arrayFromCollection:(id)result {
     if ([result isKindOfClass:[NSSet class]]) return [result allObjects];
+    if ([result isKindOfClass:[NSOrderedSet class]]) return [result array];
     if ([result isKindOfClass:[NSArray class]]) return result;
     if ([result isKindOfClass:[NSDictionary class]]) return [result allValues];
     return @[];
@@ -343,6 +347,22 @@
     // 直接按 identifier 取
     id mgr = [self fbSceneManager];
     if (mgr) {
+        @try {
+            id workspace = [mgr valueForKey:@"_workspace"];
+            for (NSString *key in @[@"_allScenesByID", @"_scenesByIdentifier", @"_scenesByID"]) {
+                id map = [workspace valueForKey:key];
+                if (![map isKindOfClass:[NSDictionary class]]) continue;
+                for (id identifier in map) {
+                    if ([identifier isKindOfClass:[NSString class]] &&
+                        [identifier containsString:self.bundleID]) {
+                        id candidate = map[identifier];
+                        id inner = [self fbSceneFromHandle:candidate];
+                        return inner ?: candidate;
+                    }
+                }
+            }
+        } @catch (__unused NSException *e) {}
+
         for (NSString *name in @[@"sceneWithIdentifier:", @"sceneFromIdentifier:"]) {
             SEL sel = NSSelectorFromString(name);
             if (![mgr respondsToSelector:sel]) continue;
@@ -613,8 +633,175 @@
     return nil;
 }
 
+- (id)settingsCopyForScene:(id)scene {
+    if (!scene) return nil;
+    @try {
+        id source = nil;
+        for (NSString *name in @[@"settings", @"mutableSettings", @"_mutableSettings"]) {
+            SEL sel = NSSelectorFromString(name);
+            if ([scene respondsToSelector:sel]) {
+                source = ((id (*)(id, SEL))objc_msgSend)(scene, sel);
+            } else {
+                source = [scene valueForKey:name];
+            }
+            if (source) break;
+        }
+        if ([source respondsToSelector:@selector(mutableCopy)]) {
+            id copied = [source mutableCopy];
+            if (copied) return copied;
+        }
+        return source;
+    } @catch (__unused NSException *e) {
+        return nil;
+    }
+}
+
+- (BOOL)submitSettings:(id)settings toScene:(id)scene {
+    if (!settings || !scene) return NO;
+    @try {
+        SEL twoArg = NSSelectorFromString(@"updateSettings:withTransitionContext:");
+        if ([scene respondsToSelector:twoArg]) {
+            ((void (*)(id, SEL, id, id))objc_msgSend)(scene, twoArg, settings, nil);
+            return YES;
+        }
+
+        SEL threeArg = NSSelectorFromString(@"updateSettings:withTransitionContext:completion:");
+        if ([scene respondsToSelector:threeArg]) {
+            ((void (*)(id, SEL, id, id, id))objc_msgSend)(scene, threeArg, settings, nil, nil);
+            return YES;
+        }
+
+        SEL legacy = NSSelectorFromString(@"_applyMutableSettings:withTransitionContext:completion:");
+        if ([scene respondsToSelector:legacy]) {
+            ((void (*)(id, SEL, id, id, id))objc_msgSend)(scene, legacy, settings, nil, nil);
+            return YES;
+        }
+
+        SEL single = NSSelectorFromString(@"updateSettings:");
+        if ([scene respondsToSelector:single]) {
+            ((void (*)(id, SEL, id))objc_msgSend)(scene, single, settings);
+            return YES;
+        }
+    } @catch (NSException *e) {
+        NSLog(@"[DualPane] scene settings failed %@: %@", self.bundleID, e);
+    }
+    return NO;
+}
+
+- (BOOL)applySceneForeground:(BOOL)foreground
+                  backgrounded:(BOOL)backgrounded
+                           size:(CGSize)size
+                   includeFrame:(BOOL)includeFrame {
+    id settings = [self settingsCopyForScene:self.scene];
+    if (!settings) return NO;
+
+    @try {
+        SEL setForeground = NSSelectorFromString(@"setForeground:");
+        if ([settings respondsToSelector:setForeground]) {
+            ((void (*)(id, SEL, BOOL))objc_msgSend)(settings, setForeground, foreground);
+        }
+
+        SEL setBackgrounded = NSSelectorFromString(@"setBackgrounded:");
+        if ([settings respondsToSelector:setBackgrounded]) {
+            ((void (*)(id, SEL, BOOL))objc_msgSend)(settings, setBackgrounded, backgrounded);
+        }
+
+        if (foreground) {
+            SEL setReasons = NSSelectorFromString(@"setDeactivationReasons:");
+            if ([settings respondsToSelector:setReasons]) {
+                ((void (*)(id, SEL, unsigned long long))objc_msgSend)(settings, setReasons, 0);
+            }
+        }
+
+        if (includeFrame && size.width > 1 && size.height > 1) {
+            SEL setFrame = NSSelectorFromString(@"setFrame:");
+            if ([settings respondsToSelector:setFrame]) {
+                CGRect frame = CGRectMake(0, 0, size.width, size.height);
+                ((void (*)(id, SEL, CGRect))objc_msgSend)(settings, setFrame, frame);
+            }
+        }
+    } @catch (NSException *e) {
+        NSLog(@"[DualPane] scene state failed %@: %@", self.bundleID, e);
+        return NO;
+    }
+
+    return [self submitSettings:settings toScene:self.scene];
+}
+
+- (UIView *)layerContainerViewFromScene:(id)scene {
+    Class containerClass = NSClassFromString(@"_UISceneLayerHostContainerView");
+    if (!scene || !containerClass) return nil;
+
+    @try {
+        id allocated = [containerClass alloc];
+        id container = nil;
+        SEL detailedInit = NSSelectorFromString(@"initWithScene:debugDescription:");
+        SEL sceneInit = NSSelectorFromString(@"initWithScene:");
+        if ([allocated respondsToSelector:detailedInit]) {
+            container = ((id (*)(id, SEL, id, id))objc_msgSend)(allocated, detailedInit,
+                                                                 scene, @"DualPane");
+        } else if ([allocated respondsToSelector:sceneInit]) {
+            container = ((id (*)(id, SEL, id))objc_msgSend)(allocated, sceneInit, scene);
+        }
+        if (![container isKindOfClass:[UIView class]]) return nil;
+
+        UIView *containerView = (UIView *)container;
+        CGSize size = self.view.bounds.size;
+        if (size.width < 2 || size.height < 2) size = CGSizeMake(180, 320);
+        containerView.frame = CGRectMake(0, 0, size.width, size.height);
+        containerView.clipsToBounds = YES;
+
+        id containerScene = scene;
+        SEL sceneSelector = NSSelectorFromString(@"scene");
+        if ([container respondsToSelector:sceneSelector]) {
+            id value = ((id (*)(id, SEL))objc_msgSend)(container, sceneSelector);
+            if (value) containerScene = value;
+        }
+
+        id layerManager = nil;
+        SEL layerManagerSelector = NSSelectorFromString(@"layerManager");
+        if ([containerScene respondsToSelector:layerManagerSelector]) {
+            layerManager = ((id (*)(id, SEL))objc_msgSend)(containerScene, layerManagerSelector);
+        }
+        id layers = nil;
+        SEL layersSelector = NSSelectorFromString(@"layers");
+        if ([layerManager respondsToSelector:layersSelector]) {
+            layers = ((id (*)(id, SEL))objc_msgSend)(layerManager, layersSelector);
+        }
+
+        SEL createHost = NSSelectorFromString(@"_createHostViewForLayer:");
+        NSUInteger created = 0;
+        if ([container respondsToSelector:createHost]) {
+            for (id layer in [self arrayFromCollection:layers]) {
+                UIView *layerView = ((id (*)(id, SEL, id))objc_msgSend)(container, createHost, layer);
+                if (![layerView isKindOfClass:[UIView class]]) continue;
+                layerView.frame = containerView.bounds;
+                layerView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+                if (layerView.superview != containerView) [containerView addSubview:layerView];
+                created += 1;
+            }
+        }
+
+        if (created > 0 || containerView.subviews.count > 0) {
+            NSLog(@"[DualPane] layer container attached %@ layers=%@", self.bundleID, @(created));
+            return containerView;
+        }
+
+        SEL invalidate = NSSelectorFromString(@"invalidate");
+        if ([container respondsToSelector:invalidate]) {
+            ((void (*)(id, SEL))objc_msgSend)(container, invalidate);
+        }
+    } @catch (NSException *e) {
+        NSLog(@"[DualPane] layer container failed %@: %@", self.bundleID, e);
+    }
+    return nil;
+}
+
 - (UIView *)hostViewFromFBScene:(id)scene {
     if (!scene) return nil;
+
+    UIView *layerContainer = [self layerContainerViewFromScene:scene];
+    if (layerContainer) return layerContainer;
 
     id hostManager = [self hostManagerFromScene:scene];
     if (hostManager) {
@@ -710,13 +897,18 @@
         id scene = [self findFBScene];
         self.scene = scene;
         if (scene) {
+            CGSize size = self.view.bounds.size;
+            if (size.width < 2 || size.height < 2) size = CGSizeMake(180, 320);
+            [self applySceneForeground:YES backgrounded:NO size:size includeFrame:YES];
+
             UIView *hv = [self hostViewFromFBScene:scene];
             if (hv) {
                 [self attachHostView:hv scene:scene];
                 self.statusText = @"已连接画面";
                 return;
             }
-            self.statusText = @"找到进程画面，但宿主视图创建失败";
+            self.statusText = [NSString stringWithFormat:@"找到 %@，但没有可用宿主图层",
+                               NSStringFromClass([scene class])];
             NSLog(@"[DualPane] scene found but no host view: %@ class=%@",
                   self.bundleID, NSStringFromClass([scene class]));
         } else {
@@ -730,6 +922,111 @@
     }
 }
 
+- (void)startSceneKeepAlive {
+    if (self.keepAliveTimer || !self.scene || !self.live) return;
+
+    dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
+                                                      dispatch_get_main_queue());
+    dispatch_source_set_timer(timer,
+                              dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+                              (uint64_t)(1.0 * NSEC_PER_SEC),
+                              (uint64_t)(0.1 * NSEC_PER_SEC));
+    __weak typeof(self) weakSelf = self;
+    dispatch_source_set_event_handler(timer, ^{
+        __strong typeof(weakSelf) self2 = weakSelf;
+        if (!self2 || !self2.live || !self2.scene) return;
+        [self2 applySceneForeground:YES backgrounded:NO size:CGSizeZero includeFrame:NO];
+        [self2 acquireProcessAssertionIfNeeded];
+    });
+    self.keepAliveTimer = timer;
+    dispatch_resume(timer);
+}
+
+- (void)stopSceneKeepAlive {
+    if (!self.keepAliveTimer) return;
+    dispatch_source_cancel(self.keepAliveTimer);
+    self.keepAliveTimer = nil;
+}
+
+- (int)hostedApplicationPID {
+    id app = [self sbApplication];
+    if (!app) return 0;
+
+    @try {
+        SEL pidSelector = NSSelectorFromString(@"pid");
+        if ([app respondsToSelector:pidSelector]) {
+            int pid = ((int (*)(id, SEL))objc_msgSend)(app, pidSelector);
+            if (pid > 0) return pid;
+        }
+
+        SEL processStateSelector = NSSelectorFromString(@"processState");
+        if ([app respondsToSelector:processStateSelector]) {
+            id state = ((id (*)(id, SEL))objc_msgSend)(app, processStateSelector);
+            if ([state respondsToSelector:pidSelector]) {
+                int pid = ((int (*)(id, SEL))objc_msgSend)(state, pidSelector);
+                if (pid > 0) return pid;
+            }
+        }
+    } @catch (__unused NSException *e) {}
+    return 0;
+}
+
+- (void)acquireProcessAssertionIfNeeded {
+    if (self.processAssertion || self.processAssertionAttempted) return;
+    int pid = [self hostedApplicationPID];
+    if (pid <= 0) return;
+
+    Class targetClass = NSClassFromString(@"RBSTarget");
+    Class attributeClass = NSClassFromString(@"RBSLegacyAttribute");
+    Class assertionClass = NSClassFromString(@"RBSAssertion");
+    if (!targetClass || !attributeClass || !assertionClass) {
+        self.processAssertionAttempted = YES;
+        return;
+    }
+
+    @try {
+        SEL targetSelector = NSSelectorFromString(@"targetWithPid:");
+        id target = ((id (*)(id, SEL, int))objc_msgSend)(targetClass, targetSelector, pid);
+        NSUInteger flags = (1 << 0) | (1 << 1) | (1 << 3) | (1 << 5);
+        SEL attributeSelector = NSSelectorFromString(@"attributeWithReason:flags:");
+        id attribute = ((id (*)(id, SEL, NSUInteger, NSUInteger))objc_msgSend)(
+            attributeClass, attributeSelector, 7, flags);
+        if (!target || !attribute) return;
+
+        id assertion = [assertionClass alloc];
+        SEL initSelector = NSSelectorFromString(@"initWithExplanation:target:attributes:");
+        assertion = ((id (*)(id, SEL, id, id, id))objc_msgSend)(
+            assertion, initSelector, @"DualPane live app host", target, @[attribute]);
+        if (!assertion) return;
+
+        NSError *error = nil;
+        SEL acquireSelector = NSSelectorFromString(@"acquireWithError:");
+        BOOL acquired = ((BOOL (*)(id, SEL, NSError **))objc_msgSend)(
+            assertion, acquireSelector, &error);
+        self.processAssertionAttempted = YES;
+        if (acquired) {
+            self.processAssertion = assertion;
+            NSLog(@"[DualPane] process assertion acquired %@ pid=%d", self.bundleID, pid);
+        } else {
+            NSLog(@"[DualPane] process assertion failed %@: %@", self.bundleID, error);
+        }
+    } @catch (NSException *e) {
+        self.processAssertionAttempted = YES;
+        NSLog(@"[DualPane] process assertion exception %@: %@", self.bundleID, e);
+    }
+}
+
+- (void)releaseProcessAssertion {
+    SEL invalidate = NSSelectorFromString(@"invalidate");
+    if ([self.processAssertion respondsToSelector:invalidate]) {
+        @try {
+            ((void (*)(id, SEL))objc_msgSend)(self.processAssertion, invalidate);
+        } @catch (__unused NSException *e) {}
+    }
+    self.processAssertion = nil;
+    self.processAssertionAttempted = NO;
+}
+
 - (void)attachHostView:(UIView *)hostView scene:(id)scene {
     if (!hostView) return;
 
@@ -739,6 +1036,7 @@
         self.placeholder.hidden = YES;
         self.snapshotView.hidden = YES;
         self.live = YES;
+        [self startSceneKeepAlive];
         return;
     }
 
@@ -759,6 +1057,8 @@
     self.live = YES;
 
     [self commitHostedFrame];
+    [self startSceneKeepAlive];
+    [self acquireProcessAssertionIfNeeded];
     NSLog(@"[DualPane] LIVE attach %@ view=%@", self.bundleID, NSStringFromClass([hostView class]));
 }
 
@@ -786,11 +1086,11 @@
     NSString *hint = nil;
     if (self.scene || self.sceneHandle) {
         hint = [NSString stringWithFormat:
-                @"暂时无法嵌入实时画面\n%@\n点下方重试，或先打开该 App 再回桌面",
-                self.statusText ?: @""];
+                @"暂时无法嵌入实时画面\n%@\niOS %@",
+                self.statusText ?: @"", [UIDevice currentDevice].systemVersion];
     } else {
         hint = [NSString stringWithFormat:
-                @"%@\n系统会先拉起应用再嵌入\n若仍失败请点「重新连接」",
+                @"%@\n正在后台创建 scene（最长约 3 秒）\n若仍失败请点「重新连接」",
                 self.statusText ?: @"应用尚未在后台运行"];
     }
     [self updatePlaceholderHint:hint];
@@ -929,59 +1229,26 @@
 - (void)updateSceneSettingsWithSize:(CGSize)size {
     if (!self.scene || size.width < 1 || size.height < 1) return;
     if (CGSizeEqualToSize(size, self.lastCommittedSceneSize)) return;
-
-    @try {
-        id settings = nil;
-        if ([self.scene respondsToSelector:NSSelectorFromString(@"mutableSettings")]) {
-            settings = ((id (*)(id, SEL))objc_msgSend)(self.scene, NSSelectorFromString(@"mutableSettings"));
-        }
-        if (!settings) return;
-
-        CGRect r = CGRectMake(0, 0, size.width, size.height);
-        SEL setFrame = NSSelectorFromString(@"setFrame:");
-        if ([settings respondsToSelector:setFrame]) {
-            NSMethodSignature *sig = [settings methodSignatureForSelector:setFrame];
-            if (sig) {
-                NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
-                inv.target = settings;
-                inv.selector = setFrame;
-                [inv setArgument:&r atIndex:2];
-                [inv invoke];
-            }
-        }
-
-        SEL setFg = NSSelectorFromString(@"setForeground:");
-        if ([settings respondsToSelector:setFg]) {
-            NSMethodSignature *sig = [settings methodSignatureForSelector:setFg];
-            if (sig) {
-                NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
-                inv.target = settings;
-                inv.selector = setFg;
-                BOOL yes = YES;
-                [inv setArgument:&yes atIndex:2];
-                [inv invoke];
-            }
-        }
-
-        // 尝试提交 settings（若 API 存在）
-        for (NSString *name in @[@"updateSettings:", @"_updateSettings:"]) {
-            SEL sel = NSSelectorFromString(name);
-            if ([self.scene respondsToSelector:sel]) {
-                ((void (*)(id, SEL, id))objc_msgSend)(self.scene, sel, settings);
-                break;
-            }
-        }
+    if ([self applySceneForeground:YES backgrounded:NO size:size includeFrame:YES]) {
         self.lastCommittedSceneSize = size;
-    } @catch (__unused NSException *e) {}
+    }
 }
 
 - (void)setSuspended:(BOOL)suspended {
     self.view.alpha = suspended ? 0.0 : 1.0;
+    if (suspended) {
+        [self stopSceneKeepAlive];
+    } else {
+        [self applySceneForeground:YES backgrounded:NO size:CGSizeZero includeFrame:NO];
+        [self startSceneKeepAlive];
+    }
 }
 
 - (void)retryAttach {
     if (self.attaching) return;
     NSLog(@"[DualPane] retryAttach #%@ %@", @(self.attemptCount + 1), self.bundleID);
+    [self stopSceneKeepAlive];
+    [self releaseProcessAssertion];
     [self.hostView removeFromSuperview];
     self.hostView = nil;
     self.retainedSceneController = nil;
@@ -998,6 +1265,11 @@
 - (void)invalidate {
     self.sceneSettingsGeneration += 1;
     self.sceneSettingsUpdateScheduled = NO;
+    [self stopSceneKeepAlive];
+    [self releaseProcessAssertion];
+    if (self.scene) {
+        [self applySceneForeground:NO backgrounded:YES size:CGSizeZero includeFrame:NO];
+    }
     if (self.scene) {
         id hostManager = [self hostManagerFromScene:self.scene];
         if (hostManager) {
@@ -1024,6 +1296,12 @@
                 } @catch (__unused NSException *e) {}
             }
         }
+    }
+    SEL invalidateHost = NSSelectorFromString(@"invalidate");
+    if ([self.hostView respondsToSelector:invalidateHost]) {
+        @try {
+            ((void (*)(id, SEL))objc_msgSend)(self.hostView, invalidateHost);
+        } @catch (__unused NSException *e) {}
     }
     [self.hostView removeFromSuperview];
     self.hostView = nil;
