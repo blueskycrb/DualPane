@@ -31,7 +31,7 @@
         PSSpecifier *group = [PSSpecifier preferenceSpecifierNamed:
                               ([self.listType isEqualToString:@"favorites"]
                                ? @"收藏的应用会优先显示在选择器中。"
-                               : @"黑名单中的应用无法用分屏/悬浮窗打开。")
+                               : @"黑名单中的应用无法用悬浮窗打开。")
                                                             target:self
                                                                set:NULL
                                                                get:NULL

@@ -1,10 +1,8 @@
 #import "DPWindowManager.h"
 #import "DPFloatingWindow.h"
-#import "DPSplitManager.h"
 #import "DPSceneHost.h"
 #import "DPAppPicker.h"
 #import "DPSettings.h"
-#import "DPOverlayController.h"
 #import "DPPassthroughWindow.h"
 #import <objc/message.h>
 
@@ -12,10 +10,8 @@
 @property (nonatomic, strong, nullable) DPPassthroughWindow *overlayWindow;
 @property (nonatomic, strong) DPPassthroughView *overlayRoot;
 @property (nonatomic, strong, readwrite) NSMutableArray<DPFloatingWindow *> *mutableFloatingWindows;
-@property (nonatomic, strong, readwrite, nullable) DPSplitManager *splitManager;
 @property (nonatomic, assign, readwrite) DPPresentationMode mode;
 @property (nonatomic, strong, nullable) DPAppPicker *picker;
-@property (nonatomic, strong, nullable) DPOverlayController *modeChooser;
 @property (nonatomic, strong) NSMutableSet<NSString *> *mutableHostedBundleIDs;
 @property (nonatomic, strong) NSMutableSet<NSString *> *launchAllowlist; // 临时允许全屏一次
 @property (nonatomic, assign) BOOL suppressLaunch;
@@ -24,11 +20,6 @@
 @property (nonatomic, weak, nullable) UIWindow *keyWindowBeforeHostedInput;
 @property (nonatomic, assign) BOOL hostedInputActive;
 - (void)openFloatingWithBundleID:(NSString *)bundleID reusingHost:(nullable DPSceneHost *)reusableHost;
-- (void)openSplitWithPrimary:(NSString *)primary
-                   secondary:(NSString *)secondary
-        reusingPrimaryHost:(nullable DPSceneHost *)reusablePrimaryHost
-      reusingSecondaryHost:(nullable DPSceneHost *)reusableSecondaryHost;
-- (void)openBundleInActiveSplit:(NSString *)bundleID;
 @end
 
 @implementation DPWindowManager
@@ -163,19 +154,9 @@
     if (![DPSettings shared].isEnabled) return;
     [self install];
 
-    DPDefaultMode mode = [DPSettings shared].defaultMode;
-    if (mode == DPDefaultModeFloating) {
-        [self presentAppPickerWithCompletion:^(NSString *bundleID) {
-            if (bundleID) [self openFloatingWithBundleID:bundleID];
-        }];
-    } else if (mode == DPDefaultModeSplit) {
-        [self presentAppPickerWithCompletion:^(NSString *bundleID) {
-            if (!bundleID) return;
-            [self handleActivationForBundleID:bundleID preferredMode:DPPresentationModeSplit];
-        }];
-    } else {
-        [self presentModeChooser];
-    }
+    [self presentAppPickerWithCompletion:^(NSString *bundleID) {
+        if (bundleID) [self openFloatingWithBundleID:bundleID];
+    }];
 }
 
 - (void)handleActivationForBundleID:(NSString *)bundleID {
@@ -192,22 +173,10 @@
 
     [self install];
 
-    DPPresentationMode resolved = mode;
-    if (resolved == DPPresentationModeNone) {
-        DPDefaultMode dm = [DPSettings shared].defaultMode;
-        if (dm == DPDefaultModeFloating) resolved = DPPresentationModeFloating;
-        else if (dm == DPDefaultModeSplit) resolved = DPPresentationModeSplit;
-    }
-
-    if (resolved == DPPresentationModeFloating) {
-        [self openFloatingWithBundleID:bundleID];
-        return;
-    }
-    if (resolved == DPPresentationModeSplit) {
-        if (self.splitManager.isActive) {
-            [self openBundleInActiveSplit:bundleID];
-            return;
-        }
+    (void)mode;
+    [self openFloatingWithBundleID:bundleID];
+    return;
+    /*
         // 分屏：左边尽量用当前前台 App；主屏触发时用「桌面占位 + 目标 App」
         NSString *primary = [self foregroundBundleID];
         if (!primary.length ||
@@ -260,6 +229,8 @@
         }];
     }];
 }
+*/
+}
 
 - (void)presentAppPickerWithCompletion:(void (^)(NSString * _Nullable))completion {
     if (self.picker) {
@@ -281,11 +252,8 @@
 #pragma mark - Open
 
 - (void)openBundleID:(NSString *)bundleID inMode:(DPPresentationMode)mode {
-    if (mode == DPPresentationModeFloating) {
-        [self openFloatingWithBundleID:bundleID];
-    } else if (mode == DPPresentationModeSplit) {
-        [self handleActivationForBundleID:bundleID preferredMode:DPPresentationModeSplit];
-    }
+    (void)mode;
+    [self openFloatingWithBundleID:bundleID];
 }
 
 - (void)openFloatingWithBundleID:(NSString *)bundleID {
@@ -316,18 +284,6 @@
         [self closeFloatingWindow:oldest animated:YES];
     }
 
-    if (self.splitManager.isActive) {
-        // Clear any remaining split hosts. A transferred host has already detached.
-        if (self.splitManager.primaryBundleID) {
-            [self.mutableHostedBundleIDs removeObject:self.splitManager.primaryBundleID];
-        }
-        if (self.splitManager.secondaryBundleID) {
-            [self.mutableHostedBundleIDs removeObject:self.splitManager.secondaryBundleID];
-        }
-        [self.splitManager dismissAnimated:NO completion:nil];
-        self.splitManager = nil;
-    }
-
     UIView *parent = [self contentParent];
     CGRect frame = [self initialFloatingFrameInBounds:parent.bounds];
     DPFloatingWindow *window = [[DPFloatingWindow alloc] initWithBundleID:bundleID frame:frame];
@@ -339,19 +295,6 @@
     __weak typeof(self) weakSelf = self;
     window.onClose = ^(DPFloatingWindow *w) {
         [weakSelf closeFloatingWindow:w animated:YES];
-    };
-    window.onExpandToSplit = ^(DPFloatingWindow *w) {
-        NSString *primary = [weakSelf foregroundBundleID];
-        if (!primary.length || [primary isEqualToString:w.bundleID]) {
-            primary = @"com.apple.springboard";
-        }
-        NSString *secondary = w.bundleID;
-        DPSceneHost *reusedHost = [w detachSceneHost];
-        [weakSelf closeFloatingWindow:w animated:NO];
-        [weakSelf openSplitWithPrimary:primary
-                             secondary:secondary
-                   reusingPrimaryHost:nil
-                 reusingSecondaryHost:reusedHost];
     };
     window.onFocus = ^(DPFloatingWindow *w) {
         for (DPFloatingWindow *other in weakSelf.mutableFloatingWindows) {
@@ -384,8 +327,6 @@
         } completion:nil];
     }
 
-    [[DPSettings shared] setLastSecondaryBundleID:bundleID];
-
     [self ensureSceneThenAttach:bundleID host:host onAttached:^{
         [weakSelf bringOverlayToFront];
     }];
@@ -393,6 +334,7 @@
     NSLog(@"[DualPane] 打开悬浮窗 %@", bundleID);
 }
 
+#if 0
 - (void)openSplitWithPrimary:(NSString *)primary secondary:(NSString *)secondary {
     [self openSplitWithPrimary:primary
                      secondary:secondary
@@ -532,6 +474,7 @@
 
     NSLog(@"[DualPane] 打开分屏 primary=%@ secondary=%@", primary, secondary);
 }
+#endif
 
 - (void)closeFloatingWindow:(DPFloatingWindow *)window animated:(BOOL)animated {
     if (!window) return;
@@ -540,7 +483,7 @@
     }
     [self.mutableFloatingWindows removeObject:window];
     [window closeAnimated:animated completion:nil];
-    if (self.mutableFloatingWindows.count == 0 && !self.splitManager.isActive) {
+    if (self.mutableFloatingWindows.count == 0) {
         self.mode = DPPresentationModeNone;
         self.suppressLaunch = NO;
     }
@@ -550,16 +493,6 @@
     NSArray *copy = [self.mutableFloatingWindows copy];
     for (DPFloatingWindow *w in copy) {
         [self closeFloatingWindow:w animated:animated];
-    }
-    if (self.splitManager.isActive) {
-        if (self.splitManager.primaryBundleID) {
-            [self.mutableHostedBundleIDs removeObject:self.splitManager.primaryBundleID];
-        }
-        if (self.splitManager.secondaryBundleID) {
-            [self.mutableHostedBundleIDs removeObject:self.splitManager.secondaryBundleID];
-        }
-        [self.splitManager dismissAnimated:animated completion:nil];
-        self.splitManager = nil;
     }
     self.mode = DPPresentationModeNone;
     self.suppressLaunch = NO;
@@ -575,7 +508,6 @@
         self.hostedInputActive = YES;
     }
     [self.overlayWindow makeKeyAndVisible];
-    [self.splitManager prepareHostsForInput];
     for (DPFloatingWindow *window in self.mutableFloatingWindows) {
         [window.sceneHost prepareForInput];
     }
@@ -608,10 +540,6 @@
         }
         self.overlayWindow.frame = bounds;
         self.overlayRoot.frame = self.overlayWindow.bounds;
-    }
-    if (self.splitManager.isActive) {
-        [self.splitManager layoutForBounds:self.overlayRoot.bounds];
-        [self.splitManager commitHostedFrames];
     }
     for (DPFloatingWindow *w in self.mutableFloatingWindows) {
         CGRect f = w.frame;

@@ -1,6 +1,6 @@
 # DualPane
 
-**Floating window + true split-screen multitasking** for **roothide Bootstrap** on **iOS 15.0 – 16.5.1**, built as an **arm64e** tweak.
+**Resizable floating app windows** for **roothide Bootstrap** on **iOS 15.0 – 16.5.1**, built as an **arm64e** tweak.
 
 中文说明见下方 [中文](#中文).
 
@@ -10,12 +10,11 @@
 
 | Feature | Description |
 |---|---|
-| **Floating window** | Draggable, resizable, pinch-to-scale overlay hosting a second app. Title-bar close / split / maximize. |
-| **True split-screen** | Side-by-side **or** top/bottom layout with a draggable divider (20%–80%). Swap panes, promote secondary to floating. |
+| **Floating window** | Draggable, resizable, pinch-to-scale overlay hosting a second app. Title-bar close / maximize. |
 | **App picker** | SpringBoard-style grid with search, favorites-first sorting, blacklist support. |
 | **Activation gestures** | Edge swipe (L/R), 3-finger swipe up, status-bar double-tap, home-indicator long-press. |
-| **Mode chooser** | Optional “Ask every time” prompt: Floating vs Split. |
-| **Preference bundle** | Full Settings pane (EN/中文 labels): sizes, opacity, corner radius, haptics, orientation, favorites, blacklist, respring. |
+| **Multiple windows** | Up to four floating app windows can remain open at the same time. |
+| **Preference bundle** | Full Settings pane (EN/中文 labels): sizes, opacity, corner radius, haptics, favorites, blacklist, respring. |
 | **roothide Bootstrap** | `THEOS_PACKAGE_SCHEME = roothide`, Debian `iphoneos-arm64e`, native arm64e. |
 
 ## Requirements
@@ -35,13 +34,12 @@ DualPane/
 ├── Sources/
 │   ├── Tweak.x                 # SpringBoard hooks, bootstrap
 │   ├── DPSettings.*            # Preferences + Darwin notify
-│   ├── DPWindowManager.*       # Coordinator (floating + split)
+│   ├── DPWindowManager.*       # Floating-window coordinator
 │   ├── DPFloatingWindow.*      # Chrome: drag / resize / pinch
-│   ├── DPSplitManager.*        # Divider layout + toolbar
 │   ├── DPSceneHost.*           # FrontBoard scene host (runtime-resolved)
 │   ├── DPGestureController.*   # Activation gestures
 │   ├── DPAppPicker.*           # App grid sheet
-│   └── DPOverlayController.*   # Mode chooser card
+│   └── DPPassthroughWindow.*  # Touch-through overlay window
 └── Preferences/                # Settings bundle
 ```
 
@@ -73,13 +71,13 @@ Manual trigger: Actions → Build DualPane → **Run workflow**.
 export THEOS=~/theos
 cd DualPane
 make package FINALPACKAGE=1
-# → packages/com.dualpane.tweak_1.1.1_iphoneos-arm64e.deb
+# → packages/com.dualpane.tweak_1.2.0_iphoneos-arm64e.deb
 ```
 
 Install on device:
 
 ```bash
-dpkg -i com.dualpane.tweak_1.1.1_iphoneos-arm64e.deb
+dpkg -i com.dualpane.tweak_1.2.0_iphoneos-arm64e.deb
 sbreload   # or respring from Settings → DualPane
 ```
 
@@ -87,11 +85,10 @@ Or add the deb to Sileo / Zebra.
 
 ## Usage
 
-1. Settings → **DualPane** → enable, pick default mode & gestures.
+1. Settings → **DualPane** → enable and configure gestures.
 2. Trigger an activation gesture (default: **edge swipe** or **3-finger swipe up**).
-3. Choose **Floating** or **Split** (if “Ask”), then pick an app.
-4. **Floating**: drag title bar, pinch / corner-resize, tap split icon to expand.
-5. **Split**: drag the center divider, use the top pill for close / swap / float.
+3. Pick an app to open in a floating window.
+4. **Floating**: drag the title bar, use the bottom-right handle or pinch to resize, and use the close or maximize button.
 
 ## Configuration keys
 
@@ -101,9 +98,6 @@ Notify: `com.dualpane.tweak/settings.changed`
 | Key | Type | Default | Notes |
 |---|---|---|---|
 | `enabled` | bool | true | Master switch |
-| `defaultMode` | int | 2 | 0=Floating, 1=Split, 2=Ask |
-| `splitOrientation` | int | 0 | 0=H, 1=V |
-| `defaultSplitRatio` | float | 0.5 | 0.2–0.8 |
 | `floatingWidth/Height` | float | 280/500 | |
 | `floatingOpacity` | float | 1.0 | |
 | `floatingCornerRadius` | float | 16 | |
@@ -134,8 +128,8 @@ MIT — see [LICENSE](LICENSE).
 
 **DualPane** 是面向 **iOS 15.0–16.5.1**、适配 **RootHide Bootstrap / roothide arm64e** 环境的 SpringBoard 插件，提供：
 
-- **悬浮窗**：可拖动、缩放、捏合，支持关闭 / 转分屏 / 最大化  
-- **真分屏**：左右或上下布局，中间分割条可拖，支持交换与转悬浮  
+- **悬浮窗**：可拖动、缩放、捏合，支持关闭与最大化
+- **多窗口**：最多同时保留 4 个可调节大小的悬浮 App 窗口
 - **应用选择器**：搜索、收藏置顶、黑名单  
 - **多种手势**：边缘滑动、三指上滑、状态栏双击、主页指示条长按  
 - **完整设置页**：中英双语标签，支持注销与重置  
@@ -152,7 +146,7 @@ dpkg -i com.dualpane.tweak_*.deb && sbreload
 
 ### 关于“第二个 App 的真实画面”
 
-把另一个 App 的界面嵌进悬浮窗/分屏，依赖 SpringBoard 的 **FrontBoard 私有 API**。DualPane 在运行时动态查找这些类：
+把另一个 App 的界面嵌进悬浮窗，依赖 SpringBoard 的 **FrontBoard 私有 API**。DualPane 在运行时动态查找这些类：
 
 - 找到且目标 App 已有 scene → 嵌入真实画面  
 - 否则显示占位页（仍可完整使用手势、布局、设置）
@@ -161,12 +155,12 @@ dpkg -i com.dualpane.tweak_*.deb && sbreload
 
 ### 使用
 
-1. 设置 → DualPane → 打开开关，配置手势与默认模式  
+1. 设置 → DualPane → 打开开关，配置手势
 2. 边缘滑动或三指上滑唤出  
-3. 选择悬浮窗或分屏，再选应用  
+3. 选择应用后打开悬浮窗
 
 ---
 
 **Repo:** https://github.com/blueskycrb/DualPane  
 **Package:** `com.dualpane.tweak`  
-**Version:** 1.1.1
+**Version:** 1.2.0

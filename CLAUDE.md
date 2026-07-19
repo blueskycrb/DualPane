@@ -6,7 +6,7 @@
 - Output: `packages/com.dualpane.tweak_*_iphoneos-arm64e.deb`
 
 ## Layout
-- `Sources/` — tweak logic (hooks, floating, split, gestures, picker, scene host)
+- `Sources/` — tweak logic (hooks, floating windows, gestures, picker, scene host)
 - `Preferences/` — Settings bundle (PreferenceLoader)
 - Filter: SpringBoard only (`DualPane.plist`)
 

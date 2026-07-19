@@ -13,7 +13,6 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) CGFloat cornerRadiusValue;
 @property (nonatomic, assign) BOOL showsBorder;
 @property (nonatomic, copy, nullable) void (^onClose)(DPFloatingWindow *window);
-@property (nonatomic, copy, nullable) void (^onExpandToSplit)(DPFloatingWindow *window);
 @property (nonatomic, copy, nullable) void (^onFocus)(DPFloatingWindow *window);
 @property (nonatomic, copy, nullable) void (^onFrameChanged)(DPFloatingWindow *window, CGRect frame);
 

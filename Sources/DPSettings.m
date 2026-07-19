@@ -104,19 +104,6 @@ static NSString *DPPreferencesPath(void) {
     return [self boolForKey:@"enabled" default:YES];
 }
 
-- (DPDefaultMode)defaultMode {
-    return (DPDefaultMode)[self integerForKey:@"defaultMode" default:DPDefaultModeSplit];
-}
-
-- (DPSplitOrientation)splitOrientation {
-    return (DPSplitOrientation)[self integerForKey:@"splitOrientation" default:DPSplitOrientationHorizontal];
-}
-
-- (CGFloat)defaultSplitRatio {
-    CGFloat r = [self floatForKey:@"defaultSplitRatio" default:0.5];
-    return MIN(0.8, MAX(0.2, r));
-}
-
 - (CGFloat)floatingOpacity {
     CGFloat o = [self floatForKey:@"floatingOpacity" default:1.0];
     return MIN(1.0, MAX(0.5, o));
@@ -199,26 +186,8 @@ static NSString *DPPreferencesPath(void) {
     return MIN(1.0, MAX(0.0, s));
 }
 
-- (BOOL)dimBackgroundInSplit {
-    return [self boolForKey:@"dimBackgroundInSplit" default:NO];
-}
-
 - (BOOL)animateTransitions {
     return [self boolForKey:@"animateTransitions" default:YES];
-}
-
-- (NSString *)lastPrimaryBundleID {
-    return self.raw[@"lastPrimaryBundleID"];
-}
-
-- (NSString *)lastSecondaryBundleID {
-    return self.raw[@"lastSecondaryBundleID"];
-}
-
-- (CGFloat)lastSplitRatio {
-    CGFloat r = [self floatForKey:@"lastSplitRatio" default:NAN];
-    if (isnan(r)) return self.defaultSplitRatio;
-    return MIN(0.8, MAX(0.2, r));
 }
 
 - (CGRect)lastFloatingFrame {
@@ -242,18 +211,6 @@ static NSString *DPPreferencesPath(void) {
     if (value) m[key] = value;
     else [m removeObjectForKey:key];
     self.raw = [m copy];
-}
-
-- (void)setLastPrimaryBundleID:(NSString *)bundleID {
-    [self writeValue:bundleID forKey:@"lastPrimaryBundleID"];
-}
-
-- (void)setLastSecondaryBundleID:(NSString *)bundleID {
-    [self writeValue:bundleID forKey:@"lastSecondaryBundleID"];
-}
-
-- (void)setLastSplitRatio:(CGFloat)ratio {
-    [self writeValue:@(ratio) forKey:@"lastSplitRatio"];
 }
 
 - (void)setLastFloatingFrame:(CGRect)frame {

@@ -138,10 +138,7 @@ static id DPSettingsByKeepingSceneForeground(id scene, id settings) {
     NSString *bid = DPBundleIDFromIconView(self.iconView);
     if (!bid.length) return;
     DPHaptic();
-    DPDefaultMode dm = [DPSettings shared].defaultMode;
-    DPPresentationMode mode = DPPresentationModeSplit;
-    if (dm == DPDefaultModeFloating) mode = DPPresentationModeFloating;
-    else if (dm == DPDefaultModeAsk) mode = DPPresentationModeNone;
+    DPPresentationMode mode = DPPresentationModeFloating;
     [[DPWindowManager shared] handleActivationForBundleID:bid preferredMode:mode];
 }
 
@@ -159,7 +156,7 @@ static id DPSettingsByKeepingSceneForeground(id scene, id settings) {
     // 系统快捷菜单可能失效：用我们自己的选择面板（走 WindowManager 的 mode chooser）
     DPHaptic();
     // 直接走询问模式，界面更统一，也避免 SpringBoard present 失败
-    [[DPWindowManager shared] handleActivationForBundleID:bid preferredMode:DPPresentationModeSplit];
+    [[DPWindowManager shared] handleActivationForBundleID:bid preferredMode:DPPresentationModeFloating];
 }
 
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer
@@ -311,12 +308,7 @@ static BOOL DPIsOurShortcutType(NSString *type) {
 static BOOL DPHandleShortcutType(NSString *type, NSString *bundleID, id iconView) {
     if (!DPIsOurShortcutType(type)) return NO;
 
-    DPPresentationMode mode = DPPresentationModeNone;
-    if ([type isEqualToString:@"com.dualpane.action.split"]) {
-        mode = DPPresentationModeSplit;
-    } else if ([type isEqualToString:@"com.dualpane.action.float"]) {
-        mode = DPPresentationModeFloating;
-    }
+    DPPresentationMode mode = DPPresentationModeFloating;
 
     NSString *bid = bundleID;
     if (!bid.length) bid = DPBundleIDFromIconView(iconView);
@@ -327,16 +319,11 @@ static BOOL DPHandleShortcutType(NSString *type, NSString *bundleID, id iconView
 }
 
 static NSArray *DPInjectedShortcutItems(void) {
-    id splitItem = DPMakeShortcutItem(@"com.dualpane.action.split",
-                                      @"分屏打开",
-                                      @"左右分屏多任务",
-                                      @"rectangle.split.2x1");
     id floatItem = DPMakeShortcutItem(@"com.dualpane.action.float",
                                       @"悬浮窗打开",
                                       @"小窗叠在桌面上",
                                       @"rectangle.on.rectangle");
     NSMutableArray *out = [NSMutableArray array];
-    if (splitItem) [out addObject:splitItem];
     if (floatItem) [out addObject:floatItem];
     return out;
 }
@@ -421,9 +408,7 @@ static NSArray *DPInjectedShortcutItems(void) {
         } @catch (__unused NSException *e) {}
     }
 
-    BOOL reroutedToSplit = [[DPWindowManager shared] handleAppLaunchInActiveSplit:bid];
-    BOOL shouldSuppress = reroutedToSplit
-        || [[DPWindowManager shared] shouldSuppressFullscreenForBundleID:bid];
+    BOOL shouldSuppress = [[DPWindowManager shared] shouldSuppressFullscreenForBundleID:bid];
     BOOL ok = %orig;
     if (shouldSuppress && bid.length) {
         NSLog(@"[DualPane] transition 后补救回桌面: %@", bid);
@@ -441,14 +426,33 @@ static NSArray *DPInjectedShortcutItems(void) {
 
 %end
 
-// A hosted text control lives inside the SpringBoard-owned overlay window.
-// Make that window key only for the duration of text input so UIKit can show
-// the system keyboard without changing normal passthrough behavior.
-%hook UIView
+%hook UIApplication
+
+- (void)sendEvent:(UIEvent *)event {
+    if (event.type == UIEventTypeTouches) {
+        Class overlayClass = NSClassFromString(@"DPPassthroughWindow");
+        for (UITouch *touch in event.allTouches) {
+            if (touch.phase == UITouchPhaseBegan
+                && overlayClass
+                && [touch.window isKindOfClass:overlayClass]) {
+                [[DPWindowManager shared] prepareForHostedInput];
+                break;
+            }
+        }
+    }
+    %orig;
+}
+
+%end
+
+// Hosted controls live inside the SpringBoard-owned overlay window. Make that
+// window key before UIKit asks the responder chain to present the keyboard.
+%hook UIResponder
 
 - (BOOL)becomeFirstResponder {
     Class overlayClass = NSClassFromString(@"DPPassthroughWindow");
-    BOOL isHosted = overlayClass && [self.window isKindOfClass:overlayClass];
+    UIWindow *window = [self isKindOfClass:[UIView class]] ? ((UIView *)self).window : nil;
+    BOOL isHosted = overlayClass && [window isKindOfClass:overlayClass];
     if (isHosted) {
         [[DPWindowManager shared] prepareForHostedInput];
     }

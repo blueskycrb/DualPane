@@ -24,6 +24,7 @@
 @property (nonatomic, strong, nullable) dispatch_source_t keepAliveTimer;
 @property (nonatomic, strong, nullable) id processAssertion;
 @property (nonatomic, assign) BOOL processAssertionAttempted;
+- (void)enableInteractionInView:(UIView *)view;
 @property (nonatomic, strong, nullable) id retainedSceneController; // 防止 VC 被释放
 - (void)layoutHostView;
 @end
@@ -1229,10 +1230,42 @@
 
 #pragma mark - Public
 
+- (void)enableInteractionInView:(UIView *)view {
+    if (!view) return;
+    view.userInteractionEnabled = YES;
+    view.multipleTouchEnabled = YES;
+    for (UIView *subview in view.subviews) {
+        [self enableInteractionInView:subview];
+    }
+}
+
 - (void)prepareForInput {
     if (!self.scene || !self.live) return;
     id hostManager = [self hostManagerFromScene:self.scene];
     [self enableHostingOnManager:hostManager];
+
+    NSString *requester = self.requesterToken ?: @"DualPane";
+    for (NSString *name in @[@"setInteractionEnabled:forRequester:",
+                             @"setUserInteractionEnabled:forRequester:",
+                             @"setHostingInteractionEnabled:forRequester:",
+                             @"setHostingEnabled:forRequester:"]) {
+        SEL selector = NSSelectorFromString(name);
+        if (![hostManager respondsToSelector:selector]) continue;
+        NSMethodSignature *signature = [hostManager methodSignatureForSelector:selector];
+        if (!signature || signature.numberOfArguments < 4) continue;
+        @try {
+            NSInvocation *invocation = [NSInvocation invocationWithMethodSignature:signature];
+            invocation.target = hostManager;
+            invocation.selector = selector;
+            BOOL enabled = YES;
+            [invocation setArgument:&enabled atIndex:2];
+            [invocation setArgument:&requester atIndex:3];
+            [invocation invoke];
+        } @catch (__unused NSException *exception) {}
+    }
+
+    [self enableInteractionInView:self.hostView];
+    self.view.userInteractionEnabled = YES;
     [self applySceneForeground:YES backgrounded:NO size:CGSizeZero includeFrame:NO];
 }
 

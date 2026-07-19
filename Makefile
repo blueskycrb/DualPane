@@ -12,12 +12,10 @@ DualPane_FILES = \
 	Sources/Tweak.x \
 	Sources/DPSettings.m \
 	Sources/DPFloatingWindow.m \
-	Sources/DPSplitManager.m \
 	Sources/DPWindowManager.m \
 	Sources/DPGestureController.m \
 	Sources/DPAppPicker.m \
 	Sources/DPSceneHost.m \
-	Sources/DPOverlayController.m \
 	Sources/DPPassthroughWindow.m
 
 DualPane_CFLAGS = -fobjc-arc -Wno-unused-variable -Wno-deprecated-declarations

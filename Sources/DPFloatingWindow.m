@@ -15,7 +15,6 @@ static const CGFloat kDPMinHeight = 220.0;
 @property (nonatomic, strong) UIView *titleBar;
 @property (nonatomic, strong) UILabel *titleLabel;
 @property (nonatomic, strong) UIButton *closeButton;
-@property (nonatomic, strong) UIButton *splitButton;
 @property (nonatomic, strong) UIButton *fullscreenButton;
 @property (nonatomic, strong) UIView *contentContainer;
 @property (nonatomic, strong) UIView *resizeHandle;
@@ -106,11 +105,6 @@ static const CGFloat kDPMinHeight = 220.0;
     self.closeButton = [self chromeButtonWithSymbol:@"xmark" action:@selector(closeTapped)];
     self.closeButton.frame = CGRectMake(6, 4, 28, 28);
     [self.titleBar addSubview:self.closeButton];
-
-    self.splitButton = [self chromeButtonWithSymbol:@"rectangle.split.2x1" action:@selector(splitTapped)];
-    self.splitButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
-    self.splitButton.frame = CGRectMake(self.bounds.size.width - 68, 4, 28, 28);
-    [self.titleBar addSubview:self.splitButton];
 
     self.fullscreenButton = [self chromeButtonWithSymbol:@"arrow.up.left.and.arrow.down.right" action:@selector(fullscreenTapped)];
     self.fullscreenButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
@@ -323,11 +317,6 @@ static const CGFloat kDPMinHeight = 220.0;
     [self haptic:UIImpactFeedbackStyleMedium];
     if (self.onClose) self.onClose(self);
     else [self closeAnimated:YES completion:nil];
-}
-
-- (void)splitTapped {
-    [self haptic:UIImpactFeedbackStyleMedium];
-    if (self.onExpandToSplit) self.onExpandToSplit(self);
 }
 
 - (void)fullscreenTapped {

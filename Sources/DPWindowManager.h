@@ -3,12 +3,10 @@
 NS_ASSUME_NONNULL_BEGIN
 
 @class DPFloatingWindow;
-@class DPSplitManager;
 
 typedef NS_ENUM(NSInteger, DPPresentationMode) {
     DPPresentationModeNone = 0,
     DPPresentationModeFloating,
-    DPPresentationModeSplit,
 };
 
 /// 悬浮窗 / 分屏总控
@@ -17,7 +15,6 @@ typedef NS_ENUM(NSInteger, DPPresentationMode) {
 + (instancetype)shared;
 
 @property (nonatomic, strong, readonly) NSArray<DPFloatingWindow *> *floatingWindows;
-@property (nonatomic, strong, readonly, nullable) DPSplitManager *splitManager;
 @property (nonatomic, assign, readonly) DPPresentationMode mode;
 
 /// 当前被托管、禁止全屏前台切换的 App bundleID 列表
@@ -33,8 +30,6 @@ typedef NS_ENUM(NSInteger, DPPresentationMode) {
 - (void)presentAppPickerWithCompletion:(void (^ _Nullable)(NSString * _Nullable bundleID))completion;
 - (void)openBundleID:(NSString *)bundleID inMode:(DPPresentationMode)mode;
 - (void)openFloatingWithBundleID:(NSString *)bundleID;
-- (void)openSplitWithPrimary:(NSString *)primary secondary:(NSString *)secondary;
-- (BOOL)handleAppLaunchInActiveSplit:(nullable NSString *)bundleID;
 - (void)prepareForHostedInput;
 - (void)dismissAllAnimated:(BOOL)animated;
 - (void)handleOrientationChange;
