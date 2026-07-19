@@ -14,6 +14,8 @@ jobs:
     name: Theos rootless package
     runs-on: macos-14
     timeout-minutes: 45
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -56,16 +58,27 @@ jobs:
           echo "SDK: $(xcrun --show-sdk-path --sdk iphoneos)"
           # FINALPACKAGE=1 → release strip + proper packaging
           gmake package FINALPACKAGE=1 -j"$(sysctl -n hw.ncpu)"
+
+          deb="$(find packages -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          test -n "$deb"
+          version="$(dpkg-deb -f "$deb" Version)"
+          output="packages/DualPane_${version}_arm64e_rootless.deb"
+          mv "$deb" "$output"
+
+          extract_dir="$(mktemp -d)"
+          dpkg-deb -x "$output" "$extract_dir"
+          found_macho=0
+          while IFS= read -r candidate; do
+            if archs="$(lipo -archs "$candidate" 2>/dev/null)"; then
+              found_macho=1
+              echo "$(basename "$candidate") architectures: $archs"
+              [[ "$archs" == "arm64e" ]]
+            fi
+          done < <(find "$extract_dir" -type f)
+          [[ "$found_macho" -eq 1 ]]
+
           echo "---- packages ----"
           ls -lah packages/
-
-      - name: Upload .deb artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: DualPane-deb
-          path: packages/*.deb
-          if-no-files-found: error
-          retention-days: 30
 
       - name: Attach deb to GitHub Release
         if: github.event_name == 'release'

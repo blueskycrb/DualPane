@@ -1,6 +1,6 @@
 # latest = whatever SDK Theos/Xcode provides; deploy target 15.0 for Bootstrap range
 export TARGET = iphone:clang:latest:15.0
-export ARCHS = arm64 arm64e
+export ARCHS = arm64e
 export THEOS_PACKAGE_SCHEME = rootless
 
 include $(THEOS)/makefiles/common.mk

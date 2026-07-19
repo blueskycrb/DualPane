@@ -16,7 +16,7 @@
 | **Activation gestures** | Edge swipe (L/R), 3-finger swipe up, status-bar double-tap, home-indicator long-press. |
 | **Mode chooser** | Optional “Ask every time” prompt: Floating vs Split. |
 | **Preference bundle** | Full Settings pane (EN/中文 labels): sizes, opacity, corner radius, haptics, orientation, favorites, blacklist, respring. |
-| **Rootless / Bootstrap** | `THEOS_PACKAGE_SCHEME = rootless`, arm64/arm64e, filter on SpringBoard only. |
+| **Rootless / Bootstrap** | `THEOS_PACKAGE_SCHEME = rootless`, native arm64e, filter on SpringBoard only. |
 
 ## Requirements
 
@@ -47,29 +47,25 @@ DualPane/
 
 ### Scene hosting (important)
 
-Live embedding of a second app’s UI into a `UIView` requires **SpringBoard / FrontBoard private APIs** (`FBSceneManager`, `FBSceneLayerHostContainerView`, …). DualPane resolves these **dynamically at runtime** so the project still compiles against a public SDK:
+Live embedding of a second app’s UI into a `UIView` requires **SpringBoard / FrontBoard private APIs** (`SBApplication`, `FBSceneHostManager`, …). DualPane resolves these **dynamically at runtime** so the project still compiles against a public SDK:
 
 1. If private classes exist and a scene for the target bundle is found → live host view is attached.
 2. Otherwise → a branded **placeholder** (icon + name + hint) is shown so chrome, gestures, and layout can still be exercised.
 
-On a real Bootstrap device, open the target app once (so a scene exists), then re-activate DualPane. Further hardening of the FrontBoard path is welcome via PR — selectors differ slightly across 15.x / 16.x.
+On a real Bootstrap device, DualPane launches the target app once when needed to create its scene, returns home, and then attaches the live host view.
 
 ## Build
 
 ### Option A — GitHub Actions (recommended)
 
-Every push to `main` builds a rootless `.deb` on `macos-14` with Theos:
+Every push to `main` verifies the rootless package build on `macos-14` with Theos. Published releases provide the `.deb` directly, without a ZIP artifact:
+The packaged tweak and preference bundle are native `arm64e` Mach-O binaries for Bootstrap. The Debian package metadata remains `iphoneos-arm64`, which is the package-manager architecture name used by rootless iOS repositories.
 
-1. Open **Actions → Build DualPane**
-2. Download the **DualPane-deb** artifact, or
-3. Create a Release (`v1.0.0`) — the workflow attaches the `.deb` automatically
+1. Open **Releases**
+2. Select the latest version
+3. Download `DualPane_<version>_arm64e_rootless.deb`
 
 Manual trigger: Actions → Build DualPane → **Run workflow**.
-
-```bash
-# from a checked-out clone, after CI finishes:
-gh run download -n DualPane-deb
-```
 
 ### Option B — Local Theos
 
@@ -77,13 +73,13 @@ gh run download -n DualPane-deb
 export THEOS=~/theos
 cd DualPane
 make package FINALPACKAGE=1
-# → packages/com.dualpane.tweak_1.0.0_iphoneos-arm64.deb
+# → packages/com.dualpane.tweak_1.0.5_iphoneos-arm64.deb
 ```
 
 Install on device:
 
 ```bash
-dpkg -i com.dualpane.tweak_1.0.0_iphoneos-arm64.deb
+dpkg -i com.dualpane.tweak_1.0.5_iphoneos-arm64.deb
 sbreload   # or respring from Settings → DualPane
 ```
 
@@ -173,4 +169,4 @@ dpkg -i com.dualpane.tweak_*.deb && sbreload
 
 **Repo:** https://github.com/blueskycrb/DualPane  
 **Package:** `com.dualpane.tweak`  
-**Version:** 1.0.0
+**Version:** 1.0.5
