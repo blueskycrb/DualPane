@@ -2,7 +2,7 @@
 
 ## Build
 - Requires Theos + iOS SDK on macOS or Linux (`make package FINALPACKAGE=1`)
-- `THEOS_PACKAGE_SCHEME=rootful` is set in the root Makefile
+- The root Makefile leaves `THEOS_PACKAGE_SCHEME` unset, so Theos uses its default rootful package layout
 - Output: `packages/com.dualpane.tweak_*_iphoneos-arm64.deb`
 
 ## Layout

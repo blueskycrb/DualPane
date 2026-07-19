@@ -16,7 +16,7 @@
 | **Activation gestures** | Edge swipe (L/R), 3-finger swipe up, status-bar double-tap, home-indicator long-press. |
 | **Mode chooser** | Optional “Ask every time” prompt: Floating vs Split. |
 | **Preference bundle** | Full Settings pane (EN/中文 labels): sizes, opacity, corner radius, haptics, orientation, favorites, blacklist, respring. |
-| **Rootful / Bootstrap** | `THEOS_PACKAGE_SCHEME = rootful`, native arm64e, filter on SpringBoard only. |
+| **Rootful / Bootstrap** | Theos default package layout, native arm64e, filter on SpringBoard only. |
 
 ## Requirements
 
