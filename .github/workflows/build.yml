@@ -55,6 +55,7 @@ jobs:
           # roothide/theos scans plists with `od | head`; pipefail turns
           # macOS od's expected SIGPIPE into a packaging failure.
           set -eu
+          set +o pipefail
           export THEOS="${THEOS:-$HOME/theos}"
           echo "THEOS=$THEOS"
           echo "SDK: $(xcrun --show-sdk-path --sdk iphoneos)"
