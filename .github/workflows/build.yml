@@ -72,10 +72,18 @@ jobs:
           extract_dir="$(mktemp -d)"
           dpkg-deb -x "$output" "$extract_dir"
 
-          # RootHide packages use the roothide /var/jb staging prefix. The
-          # installed path is remapped by Bootstrap to its current jbroot.
-          test -f "$extract_dir/var/jb/Library/MobileSubstrate/DynamicLibraries/DualPane.dylib"
-          test -f "$extract_dir/var/jb/Library/PreferenceBundles/DualPanePrefs.bundle/DualPanePrefs"
+          # roothide packages use the bootstrap's virtual root in package
+          # paths. Only the ordinary rootless scheme adds a /var/jb prefix.
+          tweak="$extract_dir/Library/MobileSubstrate/DynamicLibraries/DualPane.dylib"
+          prefs="$extract_dir/Library/PreferenceBundles/DualPanePrefs.bundle/DualPanePrefs"
+          test -f "$tweak"
+          test -f "$prefs"
+          test ! -e "$extract_dir/var/jb"
+
+          # Both binaries call jbroot(), so their dependency must use the
+          # roothide relocatable loader path rather than a rootful path.
+          otool -L "$tweak" | grep -Fq '@loader_path/.jbroot/usr/lib/libroothide.dylib'
+          otool -L "$prefs" | grep -Fq '@loader_path/.jbroot/usr/lib/libroothide.dylib'
 
           found_macho=0
           while IFS= read -r candidate; do
