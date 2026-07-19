@@ -40,7 +40,9 @@ jobs:
 
       - name: Install Theos
         run: |
-          set -euo pipefail
+          # roothide/theos scans plists with `od | head`; pipefail turns
+          # macOS od's expected SIGPIPE into a packaging failure.
+          set -eu
           git clone --depth=1 --recurse-submodules https://github.com/roothide/theos.git "$HOME/theos"
           echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
           echo "$HOME/theos/bin" >> "$GITHUB_PATH"
