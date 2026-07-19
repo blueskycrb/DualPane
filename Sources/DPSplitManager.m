@@ -215,6 +215,10 @@ static const CGFloat kDPSplitToolbarHeight = 40.0;
 }
 
 - (void)attachPrimaryHost:(DPSceneHost *)host {
+    if (self.primaryHost == host && host.view.superview == self.primaryPane) {
+        [host setHostedFrame:self.primaryPane.bounds];
+        return;
+    }
     [self.primaryHost.view removeFromSuperview];
     self.primaryHost = host;
     host.view.frame = self.primaryPane.bounds;
@@ -224,6 +228,10 @@ static const CGFloat kDPSplitToolbarHeight = 40.0;
 }
 
 - (void)attachSecondaryHost:(DPSceneHost *)host {
+    if (self.secondaryHost == host && host.view.superview == self.secondaryPane) {
+        [host setHostedFrame:self.secondaryPane.bounds];
+        return;
+    }
     [self.secondaryHost.view removeFromSuperview];
     self.secondaryHost = host;
     host.view.frame = self.secondaryPane.bounds;
@@ -253,6 +261,7 @@ static const CGFloat kDPSplitToolbarHeight = 40.0;
         self.ratio = newRatio;
         [self layoutForBounds:self.containerView.bounds];
     } else if (gr.state == UIGestureRecognizerStateEnded || gr.state == UIGestureRecognizerStateCancelled) {
+        [self commitHostedFrames];
         if (self.onRatioChanged) self.onRatioChanged(self.ratio);
         [[DPSettings shared] setLastSplitRatio:self.ratio];
         [self haptic:UIImpactFeedbackStyleMedium];
@@ -266,10 +275,18 @@ static const CGFloat kDPSplitToolbarHeight = 40.0;
         [self layoutForBounds:self.containerView.bounds];
     };
     if (animated && [DPSettings shared].animateTransitions) {
-        [UIView animateWithDuration:0.25 animations:apply];
+        [UIView animateWithDuration:0.25 animations:apply completion:^(__unused BOOL finished) {
+            [self commitHostedFrames];
+        }];
     } else {
         apply();
+        [self commitHostedFrames];
     }
+}
+
+- (void)commitHostedFrames {
+    [self.primaryHost commitHostedFrame];
+    [self.secondaryHost commitHostedFrame];
 }
 
 - (void)swapSidesAnimated:(BOOL)animated {

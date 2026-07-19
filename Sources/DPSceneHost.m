@@ -18,6 +18,10 @@
 @property (nonatomic, strong, nullable) NSString *requesterToken;
 @property (nonatomic, assign) NSInteger attemptCount;
 @property (nonatomic, assign) BOOL attaching;
+@property (nonatomic, assign) BOOL snapshotAttempted;
+@property (nonatomic, assign) BOOL sceneSettingsUpdateScheduled;
+@property (nonatomic, assign) NSUInteger sceneSettingsGeneration;
+@property (nonatomic, assign) CGSize lastCommittedSceneSize;
 @property (nonatomic, strong, nullable) id retainedSceneController; // 防止 VC 被释放
 @end
 
@@ -41,6 +45,7 @@
         _requesterToken = [NSString stringWithFormat:@"DualPane.%@.%p",
                            bundleID ?: @"app", self];
         _attemptCount = 0;
+        _lastCommittedSceneSize = CGSizeZero;
         [self buildPlaceholder];
         // 延迟到有 frame 后再挂，避免 0x0 尺寸创建坏的 host view
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -70,6 +75,23 @@
             id app = ((id (*)(id, SEL, id))objc_msgSend)(controller, sel, self.bundleID);
             if (app) return app;
         }
+    }
+    return nil;
+}
+
+- (id)mainSceneFromApplication:(id)app {
+    if (!app) return nil;
+    for (NSString *name in @[@"mainScene", @"_mainScene", @"primaryScene"]) {
+        @try {
+            SEL sel = NSSelectorFromString(name);
+            id scene = nil;
+            if ([app respondsToSelector:sel]) {
+                scene = ((id (*)(id, SEL))objc_msgSend)(app, sel);
+            } else {
+                scene = [app valueForKey:name];
+            }
+            if (scene) return scene;
+        } @catch (__unused NSException *e) {}
     }
     return nil;
 }
@@ -307,6 +329,12 @@
 }
 
 - (id)findFBScene {
+    id appScene = [self mainSceneFromApplication:[self sbApplication]];
+    if (appScene) {
+        self.sceneHandle = appScene;
+        return appScene;
+    }
+
     id handle = [self sceneHandleForBundleID];
     self.sceneHandle = handle;
     id scene = [self fbSceneFromHandle:handle];
@@ -536,9 +564,8 @@
         } @catch (__unused NSException *e) {}
     }
 
-    // snapshotViewForRequester: / contextHostViewForRequester:
-    for (NSString *name in @[@"snapshotViewForRequester:",
-                             @"contextHostViewForRequester:",
+    // Compatibility fallbacks that still return a live host view.
+    for (NSString *name in @[@"contextHostViewForRequester:",
                              @"_hostViewForRequester:"]) {
         SEL s2 = NSSelectorFromString(name);
         if (![hostManager respondsToSelector:s2]) continue;
@@ -552,8 +579,8 @@
 
 - (id)hostManagerFromScene:(id)scene {
     if (!scene) return nil;
-    for (NSString *name in @[@"contextHostManager", @"hostManager",
-                             @"_contextHostManager", @"_hostManager",
+    for (NSString *name in @[@"hostManager", @"contextHostManager",
+                             @"_hostManager", @"_contextHostManager",
                              @"layerHostManager"]) {
         @try {
             SEL sel = NSSelectorFromString(name);
@@ -593,40 +620,6 @@
     if (hostManager) {
         UIView *hv = [self invokeHostViewForRequester:hostManager];
         if (hv) return hv;
-    }
-
-    // FBSceneLayerHostContainerView / _UIContextLayerHostView
-    for (NSString *cn in @[@"FBSceneLayerHostContainerView",
-                           @"_UIContextLayerHostView",
-                           @"_UISceneHostingView",
-                           @"FBContextHostView"]) {
-        Class hostClass = NSClassFromString(cn);
-        if (!hostClass) continue;
-
-        if ([hostClass instancesRespondToSelector:NSSelectorFromString(@"initWithScene:")]) {
-            @try {
-                id h = [hostClass alloc];
-                h = ((id (*)(id, SEL, id))objc_msgSend)(h, NSSelectorFromString(@"initWithScene:"), scene);
-                if ([h isKindOfClass:[UIView class]]) {
-                    NSLog(@"[DualPane] %@ initWithScene OK", cn);
-                    return (UIView *)h;
-                }
-            } @catch (__unused NSException *e) {}
-        }
-
-        if ([hostClass instancesRespondToSelector:@selector(initWithFrame:)]) {
-            @try {
-                UIView *host = [[hostClass alloc] initWithFrame:self.view.bounds];
-                for (NSString *name in @[@"setScene:", @"hostScene:", @"setHostingScene:",
-                                         @"_setScene:", @"setContextId:"]) {
-                    SEL sel = NSSelectorFromString(name);
-                    if (![host respondsToSelector:sel]) continue;
-                    ((void (*)(id, SEL, id))objc_msgSend)(host, sel, scene);
-                    NSLog(@"[DualPane] %@ attach via %@", cn, name);
-                    return host;
-                }
-            } @catch (__unused NSException *e) {}
-        }
     }
     return nil;
 }
@@ -699,7 +692,7 @@
 #pragma mark - Main attach
 
 - (void)attemptLiveSceneHost {
-    if (self.attaching) return;
+    if (self.attaching || (self.live && self.hostView.superview == self.view)) return;
     self.attaching = YES;
     self.attemptCount += 1;
 
@@ -712,25 +705,8 @@
             return;
         }
 
-        CGSize size = self.view.bounds.size;
-        if (size.width < 2 || size.height < 2) {
-            if (self.view.superview) size = self.view.superview.bounds.size;
-            if (size.width < 2 || size.height < 2) size = CGSizeMake(180, 320);
-        }
-
-        // Path 1: SceneHandle → scene view / view controller
-        id handle = self.sceneHandle ?: [self sceneHandleForBundleID];
-        self.sceneHandle = handle;
-        if (handle) {
-            UIView *hv = [self hostViewFromSceneHandle:handle size:size];
-            if (hv) {
-                [self attachHostView:hv scene:[self fbSceneFromHandle:handle]];
-                self.statusText = @"已连接画面";
-                return;
-            }
-        }
-
-        // Path 2: FBScene → hostManager
+        // The established path is SBApplication.mainScene.hostManager.
+        // Scene-handle factories differ across iOS versions and often render blank.
         id scene = [self findFBScene];
         self.scene = scene;
         if (scene) {
@@ -757,9 +733,21 @@
 - (void)attachHostView:(UIView *)hostView scene:(id)scene {
     if (!hostView) return;
 
-    [self.hostView removeFromSuperview];
+    if (self.hostView == hostView && hostView.superview == self.view) {
+        hostView.frame = self.view.bounds;
+        self.scene = scene ?: self.scene;
+        self.placeholder.hidden = YES;
+        self.snapshotView.hidden = YES;
+        self.live = YES;
+        return;
+    }
+
+    if (self.hostView != hostView) {
+        [self.hostView removeFromSuperview];
+    }
     self.hostView = hostView;
     self.scene = scene;
+    self.lastCommittedSceneSize = CGSizeZero;
     hostView.frame = self.view.bounds;
     hostView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     hostView.clipsToBounds = YES;
@@ -770,12 +758,16 @@
     self.snapshotView.hidden = YES;
     self.live = YES;
 
-    [self updateSceneSettingsWithSize:self.view.bounds.size];
+    [self commitHostedFrame];
     NSLog(@"[DualPane] LIVE attach %@ view=%@", self.bundleID, NSStringFromClass([hostView class]));
 }
 
 - (void)applySnapshotFallback {
-    UIImage *snap = [self snapshotImage];
+    UIImage *snap = self.snapshotView.image;
+    if (!self.snapshotAttempted) {
+        self.snapshotAttempted = YES;
+        snap = [self snapshotImage];
+    }
     if (!self.snapshotView) {
         self.snapshotView = [[UIImageView alloc] initWithFrame:self.view.bounds];
         self.snapshotView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -907,12 +899,36 @@
     self.placeholder.frame = self.view.bounds;
     self.snapshotView.frame = self.view.bounds;
     if (self.live && self.scene) {
+        [self scheduleSceneSettingsUpdate];
+    }
+}
+
+- (void)scheduleSceneSettingsUpdate {
+    if (!self.live || !self.scene || self.sceneSettingsUpdateScheduled) return;
+
+    self.sceneSettingsUpdateScheduled = YES;
+    NSUInteger generation = ++self.sceneSettingsGeneration;
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.12 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        __strong typeof(weakSelf) self2 = weakSelf;
+        if (!self2 || generation != self2.sceneSettingsGeneration) return;
+        self2.sceneSettingsUpdateScheduled = NO;
+        [self2 updateSceneSettingsWithSize:self2.view.bounds.size];
+    });
+}
+
+- (void)commitHostedFrame {
+    self.sceneSettingsGeneration += 1;
+    self.sceneSettingsUpdateScheduled = NO;
+    if (self.live && self.scene) {
         [self updateSceneSettingsWithSize:self.view.bounds.size];
     }
 }
 
 - (void)updateSceneSettingsWithSize:(CGSize)size {
     if (!self.scene || size.width < 1 || size.height < 1) return;
+    if (CGSizeEqualToSize(size, self.lastCommittedSceneSize)) return;
 
     @try {
         id settings = nil;
@@ -955,6 +971,7 @@
                 break;
             }
         }
+        self.lastCommittedSceneSize = size;
     } @catch (__unused NSException *e) {}
 }
 
@@ -970,6 +987,7 @@
     self.retainedSceneController = nil;
     self.live = NO;
     self.scene = nil;
+    self.lastCommittedSceneSize = CGSizeZero;
     // 保留 sceneHandle 缓存也可清掉重找
     self.sceneHandle = nil;
     self.placeholder.hidden = NO;
@@ -978,6 +996,8 @@
 }
 
 - (void)invalidate {
+    self.sceneSettingsGeneration += 1;
+    self.sceneSettingsUpdateScheduled = NO;
     if (self.scene) {
         id hostManager = [self hostManagerFromScene:self.scene];
         if (hostManager) {

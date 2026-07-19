@@ -19,6 +19,8 @@
 @property (nonatomic, strong) NSMutableSet<NSString *> *mutableHostedBundleIDs;
 @property (nonatomic, strong) NSMutableSet<NSString *> *launchAllowlist; // 临时允许全屏一次
 @property (nonatomic, assign) BOOL suppressLaunch;
+@property (nonatomic, assign) BOOL homeReturnPending;
+@property (nonatomic, copy, nullable) NSString *pendingHomeBundleID;
 @end
 
 @implementation DPWindowManager
@@ -40,6 +42,7 @@
         _launchAllowlist = [NSMutableSet set];
         _mode = DPPresentationModeNone;
         _suppressLaunch = NO;
+        _homeReturnPending = NO;
         [[NSNotificationCenter defaultCenter] addObserver:self
                                                  selector:@selector(settingsChanged)
                                                      name:kDPSettingsChangedNotification
@@ -271,6 +274,15 @@
     if (!bundleID.length) return;
     if ([[DPSettings shared] isBundleBlacklisted:bundleID]) return;
 
+    for (DPFloatingWindow *existing in self.mutableFloatingWindows) {
+        if ([existing.bundleID isEqualToString:bundleID]) {
+            [existing bringToFront];
+            if (!existing.sceneHost.isLive) [existing.sceneHost retryAttach];
+            [self bringOverlayToFront];
+            return;
+        }
+    }
+
     // 关键：先登记托管，再画 UI —— 阻止随后的全屏启动
     [self.mutableHostedBundleIDs addObject:bundleID];
     self.suppressLaunch = YES;
@@ -344,10 +356,7 @@
 
     [[DPSettings shared] setLastSecondaryBundleID:bundleID];
 
-    __weak DPFloatingWindow *weakWindow = window;
-    __weak DPSceneHost *weakHost = host;
     [self ensureSceneThenAttach:bundleID host:host onAttached:^{
-        if (weakWindow && weakHost) [weakWindow attachSceneHost:weakHost];
         [weakSelf bringOverlayToFront];
     }];
 
@@ -357,6 +366,7 @@
 - (void)openSplitWithPrimary:(NSString *)primary secondary:(NSString *)secondary {
     if (!secondary.length) return;
     if ([[DPSettings shared] isBundleBlacklisted:secondary]) return;
+    if ([primary isEqualToString:secondary]) primary = @"com.apple.springboard";
 
     [self.mutableHostedBundleIDs addObject:secondary];
     if (primary.length && ![primary isEqualToString:@"com.apple.springboard"]) {
@@ -422,20 +432,18 @@
     [[DPSettings shared] setLastSecondaryBundleID:secondary];
     [self bringOverlayToFront];
 
-    __weak DPSceneHost *weakSHost = sHost;
-    __weak DPSceneHost *weakPHost = pHost;
-    // 副屏必须挂上真实 App
+    __weak DPSplitManager *weakSplit = self.splitManager;
+    // Establish one scene at a time. Launching both panes concurrently makes
+    // SpringBoard transitions race and can leave either host blank.
     [self ensureSceneThenAttach:secondary host:sHost onAttached:^{
-        if (weakSHost) [weakSelf.splitManager attachSecondaryHost:weakSHost];
         [weakSelf bringOverlayToFront];
+        if (!weakSelf || weakSelf.splitManager != weakSplit || !weakSplit.isActive) return;
+        if (primary.length && ![primary isEqualToString:@"com.apple.springboard"]) {
+            [weakSelf ensureSceneThenAttach:primary host:pHost onAttached:^{
+                [weakSelf bringOverlayToFront];
+            }];
+        }
     }];
-    // 主屏若不是 SpringBoard，同样尝试
-    if (primary.length && ![primary isEqualToString:@"com.apple.springboard"]) {
-        [self ensureSceneThenAttach:primary host:pHost onAttached:^{
-            if (weakPHost) [weakSelf.splitManager attachPrimaryHost:weakPHost];
-            [weakSelf bringOverlayToFront];
-        }];
-    }
 
     NSLog(@"[DualPane] 打开分屏 primary=%@ secondary=%@", primary, secondary);
 }
@@ -485,6 +493,7 @@
     }
     if (self.splitManager.isActive) {
         [self.splitManager layoutForBounds:self.overlayRoot.bounds];
+        [self.splitManager commitHostedFrames];
     }
     for (DPFloatingWindow *w in self.mutableFloatingWindows) {
         CGRect f = w.frame;
@@ -494,6 +503,7 @@
         if (f.origin.x > bounds.size.width - 40) f.origin.x = bounds.size.width - f.size.width;
         if (f.origin.y > bounds.size.height - 40) f.origin.y = bounds.size.height - 40;
         w.frame = f;
+        [w commitSceneLayout];
     }
     [self bringOverlayToFront];
 }
@@ -514,6 +524,37 @@
 
 - (void)allowNextLaunchForBundleID:(NSString *)bundleID {
     if (bundleID.length) [self.launchAllowlist addObject:bundleID];
+}
+
+- (void)handlePotentialFullscreenActivationForBundleID:(NSString *)bundleID {
+    if (![self shouldSuppressFullscreenForBundleID:bundleID]) {
+        [self bringOverlayToFront];
+        return;
+    }
+    [self scheduleHomeReturnForBundleID:bundleID delay:0.15];
+}
+
+- (void)scheduleHomeReturnForBundleID:(NSString *)bundleID delay:(NSTimeInterval)delay {
+    if (!bundleID.length) return;
+
+    self.pendingHomeBundleID = [bundleID copy];
+    if (self.homeReturnPending) return;
+    self.homeReturnPending = YES;
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        __strong typeof(weakSelf) self2 = weakSelf;
+        if (!self2) return;
+        NSString *target = self2.pendingHomeBundleID;
+        self2.pendingHomeBundleID = nil;
+        self2.homeReturnPending = NO;
+        if (self2.mode == DPPresentationModeNone ||
+            ![self2 shouldSuppressFullscreenForBundleID:target]) {
+            [self2 bringOverlayToFront];
+            return;
+        }
+        [self2 goHome];
+    });
 }
 
 /// 若还没挂上 live 画面：最多拉起一次 App → 回桌面 → 有限次数重试。
@@ -552,19 +593,22 @@
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         __strong typeof(weakSelf) self2 = weakSelf;
         __strong DPSceneHost *host2 = weakHost;
-        if (!self2 || !host2) return;
+        if (!self2) return;
 
         [self2.launchAllowlist removeObject:bundleID];
+        if (!host2) {
+            self2.suppressLaunch = NO;
+            return;
+        }
         [self2.mutableHostedBundleIDs addObject:bundleID];
         // 只有仍在悬浮/分屏模式才回桌面压制
         if (self2.mode != DPPresentationModeNone) {
             self2.suppressLaunch = YES;
-            [self2 goHome];
-            [self2 bringOverlayToFront];
+            [self2 scheduleHomeReturnForBundleID:bundleID delay:0.0];
         }
 
-        // 有限重试：0.4 / 1.2 / 2.4，成功即停（用共享标志，避免 block 自引用）
-        NSArray *delays = @[@0.4, @1.2, @2.4];
+        // Retry after the home transition has started, then back off.
+        NSArray *delays = @[@0.25, @0.65, @1.25, @2.25];
         __block BOOL finished = NO;
         void (^finishOK)(void) = ^{
             if (finished) return;
@@ -587,13 +631,6 @@
             }
             NSLog(@"[DualPane] 挂接失败，停止重试: %@", bundleID);
         };
-
-        // 立即试一次
-        [host2 retryAttach];
-        if (host2.isLive) {
-            finishOK();
-            return;
-        }
 
         NSTimeInterval acc = 0;
         for (NSUInteger i = 0; i < delays.count; i++) {

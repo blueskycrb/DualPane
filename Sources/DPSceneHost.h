@@ -3,7 +3,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 /// 把目标 App 的画面嵌进 UIView。
-/// 依次尝试：SceneHandle 视图 → FBSceneHostManager → 图层宿主 → 快照回退。
+/// 优先使用 mainScene 的 FBSceneHostManager，失败时显示快照回退。
 @interface DPSceneHost : NSObject
 
 @property (nonatomic, copy, readonly) NSString *bundleID;
@@ -15,6 +15,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (instancetype)initWithBundleID:(NSString *)bundleID;
 - (void)setHostedFrame:(CGRect)frame;
+- (void)commitHostedFrame;
 - (void)setSuspended:(BOOL)suspended;
 - (void)retryAttach;
 - (void)invalidate;

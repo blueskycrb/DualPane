@@ -213,6 +213,7 @@ static const CGFloat kDPMinHeight = 220.0;
         self.frame = CGRectMake(self.resizeStartOrigin.x, self.resizeStartOrigin.y, w, h);
         [self layoutSceneIfNeeded];
     } else if (gr.state == UIGestureRecognizerStateEnded || gr.state == UIGestureRecognizerStateCancelled) {
+        [self.sceneHost commitHostedFrame];
         if (self.onFrameChanged) self.onFrameChanged(self, self.frame);
         [self haptic:UIImpactFeedbackStyleMedium];
     }
@@ -233,7 +234,8 @@ static const CGFloat kDPMinHeight = 220.0;
         self.center = center;
         gr.scale = 1.0;
         [self layoutSceneIfNeeded];
-    } else if (gr.state == UIGestureRecognizerStateEnded) {
+    } else if (gr.state == UIGestureRecognizerStateEnded || gr.state == UIGestureRecognizerStateCancelled) {
+        [self.sceneHost commitHostedFrame];
         if (self.onFrameChanged) self.onFrameChanged(self, self.frame);
     }
 }
@@ -280,10 +282,12 @@ static const CGFloat kDPMinHeight = 220.0;
     if (animate) {
         [UIView animateWithDuration:0.28 delay:0 usingSpringWithDamping:0.85 initialSpringVelocity:0.4 options:0 animations:apply completion:^(BOOL finished) {
             (void)finished;
+            [self.sceneHost commitHostedFrame];
             if (self.onFrameChanged) self.onFrameChanged(self, self.frame);
         }];
     } else {
         apply();
+        [self.sceneHost commitHostedFrame];
         if (self.onFrameChanged) self.onFrameChanged(self, self.frame);
     }
 }
@@ -291,6 +295,10 @@ static const CGFloat kDPMinHeight = 220.0;
 #pragma mark - Scene
 
 - (void)attachSceneHost:(DPSceneHost *)host {
+    if (self.sceneHost == host && host.view.superview == self.contentContainer) {
+        [self layoutSceneIfNeeded];
+        return;
+    }
     if (self.sceneHost) {
         [self.sceneHost.view removeFromSuperview];
     }
@@ -305,6 +313,10 @@ static const CGFloat kDPMinHeight = 220.0;
     if (self.sceneHost) {
         [self.sceneHost setHostedFrame:self.contentContainer.bounds];
     }
+}
+
+- (void)commitSceneLayout {
+    [self.sceneHost commitHostedFrame];
 }
 
 - (void)layoutSubviews {

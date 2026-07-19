@@ -29,6 +29,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)swapSidesAnimated:(BOOL)animated;
 - (void)dismissAnimated:(BOOL)animated completion:(void (^ _Nullable)(void))completion;
 - (void)layoutForBounds:(CGRect)bounds;
+- (void)commitHostedFrames;
 
 @end
 

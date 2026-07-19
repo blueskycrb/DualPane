@@ -78,32 +78,6 @@ static void DPHaptic(void) {
     [g impactOccurred];
 }
 
-static void DPGoHomeIfNeeded(void) {
-    // 若系统已经把托管 App 切到前台，立刻回桌面，保留我们的顶层悬浮/分屏窗
-    // 加一点延迟，避免与正在进行的 transition 死锁
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        if ([DPWindowManager shared].mode == DPPresentationModeNone) return;
-        Class SBUIController = NSClassFromString(@"SBUIController");
-        if (!SBUIController) return;
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-        id ui = [SBUIController performSelector:@selector(sharedInstance)];
-#pragma clang diagnostic pop
-        if ([ui respondsToSelector:NSSelectorFromString(@"handleHomeButtonSinglePressUp")]) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-            [ui performSelector:NSSelectorFromString(@"handleHomeButtonSinglePressUp")];
-#pragma clang diagnostic pop
-        } else if ([ui respondsToSelector:NSSelectorFromString(@"clickedMenuButton")]) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-            [ui performSelector:NSSelectorFromString(@"clickedMenuButton")];
-#pragma clang diagnostic pop
-        }
-        [[DPWindowManager shared] bringOverlayToFront];
-    });
-}
-
 // ── 图标上滑 ───────────────────────────────────────────────────────────────
 
 @interface DPIconGestureTarget : NSObject
@@ -333,7 +307,7 @@ static NSArray *DPInjectedShortcutItems(void) {
     NSString *bid = DPBundleIDFromObject(arg);
     if ([[DPWindowManager shared] shouldSuppressFullscreenForBundleID:bid]) {
         NSLog(@"[DualPane] frontDisplay 补救回桌面: %@", bid);
-        DPGoHomeIfNeeded();
+        [[DPWindowManager shared] handlePotentialFullscreenActivationForBundleID:bid];
     } else {
         [[DPWindowManager shared] bringOverlayToFront];
     }
@@ -368,8 +342,7 @@ static NSArray *DPInjectedShortcutItems(void) {
     BOOL ok = %orig;
     if (shouldSuppress && bid.length) {
         NSLog(@"[DualPane] transition 后补救回桌面: %@", bid);
-        DPGoHomeIfNeeded();
-        [[DPWindowManager shared] bringOverlayToFront];
+        [[DPWindowManager shared] handlePotentialFullscreenActivationForBundleID:bid];
     }
     return ok;
 }
