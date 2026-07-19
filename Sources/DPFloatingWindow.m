@@ -1,9 +1,10 @@
 #import "DPFloatingWindow.h"
 #import "DPSceneHost.h"
 #import "DPSettings.h"
+#import <math.h>
 
 static const CGFloat kDPTitleBarHeight = 36.0;
-static const CGFloat kDPResizeHandle = 22.0;
+static const CGFloat kDPResizeHandle = 44.0;
 static const CGFloat kDPMinWidth = 180.0;
 static const CGFloat kDPMinHeight = 220.0;
 
@@ -23,6 +24,12 @@ static const CGFloat kDPMinHeight = 220.0;
 @property (nonatomic, assign) CGSize resizeStartSize;
 @property (nonatomic, assign) CGPoint resizeStartOrigin;
 @property (nonatomic, assign) BOOL isActive;
+@property (nonatomic, assign) BOOL maximized;
+@property (nonatomic, assign) CGRect restoreFrame;
+- (CGRect)clampFrame:(CGRect)frame inBounds:(CGRect)bounds;
+- (void)leaveMaximizedState;
+- (void)updateFullscreenButton;
+- (void)layoutSceneIfNeeded;
 @end
 
 @implementation DPFloatingWindow
@@ -35,6 +42,8 @@ static const CGFloat kDPMinHeight = 220.0;
         _cornerRadiusValue = 16.0;
         _showsBorder = YES;
         _isActive = YES;
+        _maximized = NO;
+        _restoreFrame = CGRectNull;
         self.clipsToBounds = NO;
         self.layer.shadowColor = [UIColor blackColor].CGColor;
         self.layer.shadowOpacity = 0.35;
@@ -45,6 +54,22 @@ static const CGFloat kDPMinHeight = 220.0;
         [self applyAppearance];
     }
     return self;
+}
+
+- (void)didMoveToSuperview {
+    [super didMoveToSuperview];
+    if (!self.superview) return;
+
+    CGRect bounds = self.superview.bounds;
+    BOOL fillsSuperview = fabs(self.frame.origin.x - bounds.origin.x) < 1.0
+        && fabs(self.frame.origin.y - bounds.origin.y) < 1.0
+        && fabs(self.frame.size.width - bounds.size.width) < 1.0
+        && fabs(self.frame.size.height - bounds.size.height) < 1.0;
+    if (fillsSuperview && !self.maximized) {
+        self.maximized = YES;
+        self.restoreFrame = CGRectInset(bounds, 24.0, 72.0);
+        [self updateFullscreenButton];
+    }
 }
 
 #pragma mark - Chrome
@@ -105,16 +130,17 @@ static const CGFloat kDPMinHeight = 220.0;
                                                                  self.bounds.size.height - kDPResizeHandle,
                                                                  kDPResizeHandle, kDPResizeHandle)];
     self.resizeHandle.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleTopMargin;
-    self.resizeHandle.backgroundColor = [UIColor clearColor];
+    self.resizeHandle.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.22];
+    self.resizeHandle.layer.cornerRadius = 8.0;
     [self addSubview:self.resizeHandle];
 
     // Visual grip
     CAShapeLayer *grip = [CAShapeLayer layer];
     UIBezierPath *path = [UIBezierPath bezierPath];
     for (int i = 0; i < 3; i++) {
-        CGFloat o = 6 + i * 4;
-        [path moveToPoint:CGPointMake(o, kDPResizeHandle - 4)];
-        [path addLineToPoint:CGPointMake(kDPResizeHandle - 4, o)];
+        CGFloat inset = 10 + i * 5;
+        [path moveToPoint:CGPointMake(kDPResizeHandle - inset, kDPResizeHandle - 7)];
+        [path addLineToPoint:CGPointMake(kDPResizeHandle - 7, kDPResizeHandle - inset)];
     }
     grip.path = path.CGPath;
     grip.strokeColor = [UIColor colorWithWhite:1 alpha:0.55].CGColor;
@@ -171,6 +197,7 @@ static const CGFloat kDPMinHeight = 220.0;
     [self addGestureRecognizer:tap];
 
     UIPinchGestureRecognizer *pinch = [[UIPinchGestureRecognizer alloc] initWithTarget:self action:@selector(handlePinch:)];
+    pinch.cancelsTouchesInView = YES;
     [self addGestureRecognizer:pinch];
 }
 
@@ -179,6 +206,19 @@ static const CGFloat kDPMinHeight = 220.0;
     if (!superview) return;
 
     if (gr.state == UIGestureRecognizerStateBegan) {
+        if (self.maximized) {
+            CGPoint touch = [gr locationInView:superview];
+            CGRect restored = CGRectIsNull(self.restoreFrame)
+                ? CGRectInset(superview.bounds, 24.0, 72.0)
+                : self.restoreFrame;
+            CGFloat relativeX = self.bounds.size.width > 0
+                ? [gr locationInView:self].x / self.bounds.size.width : 0.5;
+            restored.origin.x = touch.x - restored.size.width * relativeX;
+            restored.origin.y = touch.y - kDPTitleBarHeight / 2.0;
+            self.frame = [self clampFrame:restored inBounds:superview.bounds];
+            [self leaveMaximizedState];
+            [self layoutSceneIfNeeded];
+        }
         self.panStartOrigin = self.frame.origin;
         [self bringToFront];
         if (self.onFocus) self.onFocus(self);
@@ -200,6 +240,7 @@ static const CGFloat kDPMinHeight = 220.0;
     if (!superview) return;
 
     if (gr.state == UIGestureRecognizerStateBegan) {
+        [self leaveMaximizedState];
         self.resizeStartSize = self.bounds.size;
         self.resizeStartOrigin = self.frame.origin;
         [self bringToFront];
@@ -220,7 +261,9 @@ static const CGFloat kDPMinHeight = 220.0;
 }
 
 - (void)handlePinch:(UIPinchGestureRecognizer *)gr {
-    if (gr.state == UIGestureRecognizerStateChanged) {
+    if (gr.state == UIGestureRecognizerStateBegan) {
+        [self leaveMaximizedState];
+    } else if (gr.state == UIGestureRecognizerStateChanged) {
         CGFloat scale = gr.scale;
         CGRect f = self.frame;
         CGPoint center = CGPointMake(CGRectGetMidX(f), CGRectGetMidY(f));
@@ -230,8 +273,8 @@ static const CGFloat kDPMinHeight = 220.0;
             w = MIN(w, self.superview.bounds.size.width);
             h = MIN(h, self.superview.bounds.size.height);
         }
-        self.bounds = CGRectMake(0, 0, w, h);
-        self.center = center;
+        CGRect resized = CGRectMake(center.x - w / 2.0, center.y - h / 2.0, w, h);
+        self.frame = [self clampFrame:resized inBounds:self.superview.bounds];
         gr.scale = 1.0;
         [self layoutSceneIfNeeded];
     } else if (gr.state == UIGestureRecognizerStateEnded || gr.state == UIGestureRecognizerStateCancelled) {
@@ -247,14 +290,31 @@ static const CGFloat kDPMinHeight = 220.0;
 }
 
 - (CGRect)clampFrame:(CGRect)frame inBounds:(CGRect)bounds {
-    // Keep at least 40pt of title bar visible
-    CGFloat minX = -frame.size.width + 80;
-    CGFloat maxX = bounds.size.width - 80;
-    CGFloat minY = 0;
-    CGFloat maxY = bounds.size.height - kDPTitleBarHeight;
-    frame.origin.x = MIN(maxX, MAX(minX, frame.origin.x));
-    frame.origin.y = MIN(maxY, MAX(minY, frame.origin.y));
+    frame.size.width = MIN(bounds.size.width, MAX(kDPMinWidth, frame.size.width));
+    frame.size.height = MIN(bounds.size.height, MAX(kDPMinHeight, frame.size.height));
+    CGFloat maxX = MAX(0, bounds.size.width - frame.size.width);
+    CGFloat maxY = MAX(0, bounds.size.height - frame.size.height);
+    frame.origin.x = MIN(maxX, MAX(0, frame.origin.x));
+    frame.origin.y = MIN(maxY, MAX(0, frame.origin.y));
     return frame;
+}
+
+- (void)leaveMaximizedState {
+    if (!self.maximized) return;
+    self.maximized = NO;
+    [self updateFullscreenButton];
+}
+
+- (void)updateFullscreenButton {
+    if (@available(iOS 13.0, *)) {
+        NSString *symbol = self.maximized
+            ? @"arrow.down.right.and.arrow.up.left"
+            : @"arrow.up.left.and.arrow.down.right";
+        UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:12
+                                                                                           weight:UIImageSymbolWeightBold];
+        [self.fullscreenButton setImage:[UIImage systemImageNamed:symbol withConfiguration:cfg]
+                               forState:UIControlStateNormal];
+    }
 }
 
 #pragma mark - Actions
@@ -274,9 +334,23 @@ static const CGFloat kDPMinHeight = 220.0;
     [self haptic:UIImpactFeedbackStyleLight];
     UIView *superview = self.superview;
     if (!superview) return;
+    CGRect target;
+    if (self.maximized) {
+        target = CGRectIsNull(self.restoreFrame)
+            ? CGRectInset(superview.bounds, 24.0, 72.0)
+            : self.restoreFrame;
+        target = [self clampFrame:target inBounds:superview.bounds];
+        self.maximized = NO;
+    } else {
+        self.restoreFrame = [self clampFrame:self.frame inBounds:superview.bounds];
+        target = superview.bounds;
+        self.maximized = YES;
+    }
+    [self updateFullscreenButton];
+
     BOOL animate = [DPSettings shared].animateTransitions;
     void (^apply)(void) = ^{
-        self.frame = superview.bounds;
+        self.frame = target;
         [self layoutSceneIfNeeded];
     };
     if (animate) {
@@ -309,6 +383,14 @@ static const CGFloat kDPMinHeight = 220.0;
     [host setHostedFrame:self.contentContainer.bounds];
 }
 
+- (DPSceneHost *)detachSceneHost {
+    DPSceneHost *host = self.sceneHost;
+    if (!host) return nil;
+    [host.view removeFromSuperview];
+    self.sceneHost = nil;
+    return host;
+}
+
 - (void)layoutSceneIfNeeded {
     if (self.sceneHost) {
         [self.sceneHost setHostedFrame:self.contentContainer.bounds];
@@ -330,6 +412,7 @@ static const CGFloat kDPMinHeight = 220.0;
     self.resizeHandle.frame = CGRectMake(self.bounds.size.width - kDPResizeHandle,
                                          self.bounds.size.height - kDPResizeHandle,
                                          kDPResizeHandle, kDPResizeHandle);
+    [self bringSubviewToFront:self.resizeHandle];
     [self layoutSceneIfNeeded];
 }
 

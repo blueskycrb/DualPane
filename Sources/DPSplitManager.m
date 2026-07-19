@@ -6,6 +6,21 @@ static const CGFloat kDPDividerHitWidth = 28.0;
 static const CGFloat kDPDividerVisualWidth = 4.0;
 static const CGFloat kDPSplitToolbarHeight = 40.0;
 
+@interface DPSplitContainerView : UIView
+@property (nonatomic, weak, nullable) UIView *passthroughPane;
+@end
+
+@implementation DPSplitContainerView
+
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    UIView *hit = [super hitTest:point withEvent:event];
+    UIView *pane = self.passthroughPane;
+    if (pane && (hit == pane || [hit isDescendantOfView:pane])) return nil;
+    return hit;
+}
+
+@end
+
 @interface DPSplitManager ()
 @property (nonatomic, strong, readwrite, nullable) UIView *containerView;
 @property (nonatomic, copy, readwrite, nullable) NSString *primaryBundleID;
@@ -27,6 +42,7 @@ static const CGFloat kDPSplitToolbarHeight = 40.0;
 @property (nonatomic, strong, nullable) DPSceneHost *secondaryHost;
 @property (nonatomic, strong, nullable) UIView *dimView;
 @property (nonatomic, assign) CGFloat dragStartRatio;
+- (void)updatePassthroughPane;
 @end
 
 @implementation DPSplitManager
@@ -56,7 +72,7 @@ static const CGFloat kDPSplitToolbarHeight = 40.0;
     self.ratio = MIN(0.8, MAX(0.2, ratio));
     self.active = YES;
 
-    self.containerView = [[UIView alloc] initWithFrame:parent.bounds];
+    self.containerView = [[DPSplitContainerView alloc] initWithFrame:parent.bounds];
     self.containerView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     self.containerView.backgroundColor = [UIColor blackColor];
     self.containerView.clipsToBounds = YES;
@@ -66,6 +82,7 @@ static const CGFloat kDPSplitToolbarHeight = 40.0;
         self.dimView = [[UIView alloc] initWithFrame:parent.bounds];
         self.dimView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         self.dimView.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.25];
+        self.dimView.userInteractionEnabled = NO;
         [parent insertSubview:self.dimView belowSubview:self.containerView];
     }
 
@@ -101,6 +118,7 @@ static const CGFloat kDPSplitToolbarHeight = 40.0;
     [self.divider addGestureRecognizer:pan];
 
     [self buildToolbar];
+    [self updatePassthroughPane];
     [self layoutForBounds:self.containerView.bounds];
 
     if (animated && [DPSettings shared].animateTransitions) {
@@ -240,6 +258,41 @@ static const CGFloat kDPSplitToolbarHeight = 40.0;
     [host setHostedFrame:self.secondaryPane.bounds];
 }
 
+- (DPSceneHost *)detachPrimaryHost {
+    DPSceneHost *host = self.primaryHost;
+    if (!host) return nil;
+    [host.view removeFromSuperview];
+    self.primaryHost = nil;
+    return host;
+}
+
+- (DPSceneHost *)detachSecondaryHost {
+    DPSceneHost *host = self.secondaryHost;
+    if (!host) return nil;
+    [host.view removeFromSuperview];
+    self.secondaryHost = nil;
+    return host;
+}
+
+- (void)updatePassthroughPane {
+    BOOL primaryIsHome = [self.primaryBundleID isEqualToString:@"com.apple.springboard"];
+    BOOL secondaryIsHome = [self.secondaryBundleID isEqualToString:@"com.apple.springboard"];
+    DPSplitContainerView *container = [self.containerView isKindOfClass:[DPSplitContainerView class]]
+        ? (DPSplitContainerView *)self.containerView : nil;
+    container.passthroughPane = primaryIsHome ? self.primaryPane
+        : (secondaryIsHome ? self.secondaryPane : nil);
+    container.backgroundColor = (primaryIsHome || secondaryIsHome)
+        ? [UIColor clearColor] : [UIColor blackColor];
+    self.primaryPane.backgroundColor = primaryIsHome
+        ? [UIColor clearColor]
+        : [UIColor colorWithRed:0.10 green:0.11 blue:0.13 alpha:1.0];
+    self.secondaryPane.backgroundColor = secondaryIsHome
+        ? [UIColor clearColor]
+        : [UIColor colorWithRed:0.10 green:0.11 blue:0.13 alpha:1.0];
+    self.floatButton.enabled = !secondaryIsHome;
+    self.floatButton.alpha = secondaryIsHome ? 0.35 : 1.0;
+}
+
 #pragma mark - Divider
 
 - (void)handleDividerPan:(UIPanGestureRecognizer *)gr {
@@ -299,6 +352,8 @@ static const CGFloat kDPSplitToolbarHeight = 40.0;
     self.secondaryHost = tmpHost;
 
     self.ratio = 1.0 - self.ratio;
+
+    [self updatePassthroughPane];
 
     // Re-parent views
     [self.primaryHost.view removeFromSuperview];

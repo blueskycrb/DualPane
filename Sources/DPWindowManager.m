@@ -21,6 +21,10 @@
 @property (nonatomic, assign) BOOL suppressLaunch;
 @property (nonatomic, assign) BOOL homeReturnPending;
 @property (nonatomic, copy, nullable) NSString *pendingHomeBundleID;
+- (void)openFloatingWithBundleID:(NSString *)bundleID reusingHost:(nullable DPSceneHost *)reusableHost;
+- (void)openSplitWithPrimary:(NSString *)primary
+                   secondary:(NSString *)secondary
+      reusingSecondaryHost:(nullable DPSceneHost *)reusableSecondaryHost;
 @end
 
 @implementation DPWindowManager
@@ -271,6 +275,11 @@
 }
 
 - (void)openFloatingWithBundleID:(NSString *)bundleID {
+    [self openFloatingWithBundleID:bundleID reusingHost:nil];
+}
+
+- (void)openFloatingWithBundleID:(NSString *)bundleID
+                     reusingHost:(DPSceneHost *)reusableHost {
     if (!bundleID.length) return;
     if ([[DPSettings shared] isBundleBlacklisted:bundleID]) return;
 
@@ -294,7 +303,10 @@
     }
 
     if (self.splitManager.isActive) {
-        // 分屏里的托管也清掉
+        // Clear any remaining split hosts. A transferred host has already detached.
+        if (self.splitManager.primaryBundleID) {
+            [self.mutableHostedBundleIDs removeObject:self.splitManager.primaryBundleID];
+        }
         if (self.splitManager.secondaryBundleID) {
             [self.mutableHostedBundleIDs removeObject:self.splitManager.secondaryBundleID];
         }
@@ -320,8 +332,9 @@
             primary = @"com.apple.springboard";
         }
         NSString *secondary = w.bundleID;
+        DPSceneHost *reusedHost = [w detachSceneHost];
         [weakSelf closeFloatingWindow:w animated:NO];
-        [weakSelf openSplitWithPrimary:primary secondary:secondary];
+        [weakSelf openSplitWithPrimary:primary secondary:secondary reusingSecondaryHost:reusedHost];
     };
     window.onFocus = ^(DPFloatingWindow *w) {
         for (DPFloatingWindow *other in weakSelf.mutableFloatingWindows) {
@@ -342,7 +355,7 @@
     // layout 后再挂 host，保证 contentContainer 有真实尺寸
     [window setNeedsLayout];
     [window layoutIfNeeded];
-    DPSceneHost *host = [[DPSceneHost alloc] initWithBundleID:bundleID];
+    DPSceneHost *host = reusableHost ?: [[DPSceneHost alloc] initWithBundleID:bundleID];
     [window attachSceneHost:host];
 
     if ([DPSettings shared].animateTransitions) {
@@ -364,6 +377,12 @@
 }
 
 - (void)openSplitWithPrimary:(NSString *)primary secondary:(NSString *)secondary {
+    [self openSplitWithPrimary:primary secondary:secondary reusingSecondaryHost:nil];
+}
+
+- (void)openSplitWithPrimary:(NSString *)primary
+                   secondary:(NSString *)secondary
+      reusingSecondaryHost:(DPSceneHost *)reusableSecondaryHost {
     if (!secondary.length) return;
     if ([[DPSettings shared] isBundleBlacklisted:secondary]) return;
     if ([primary isEqualToString:secondary]) primary = @"com.apple.springboard";
@@ -408,9 +427,10 @@
         NSString *s = weakSelf.splitManager.secondaryBundleID;
         if (p) [weakSelf.mutableHostedBundleIDs removeObject:p];
         if (s) [weakSelf.mutableHostedBundleIDs removeObject:s];
+        DPSceneHost *reusedHost = [weakSelf.splitManager detachSecondaryHost];
         [weakSelf.splitManager dismissAnimated:YES completion:^{
             weakSelf.splitManager = nil;
-            [weakSelf openFloatingWithBundleID:bundleID];
+            [weakSelf openFloatingWithBundleID:bundleID reusingHost:reusedHost];
         }];
     };
 
@@ -422,9 +442,10 @@
 
     // 先 layout 再挂 host，避免 0 尺寸
     [self.splitManager layoutForBounds:parent.bounds];
-    DPSceneHost *pHost = [[DPSceneHost alloc] initWithBundleID:primary ?: @"com.apple.springboard"];
-    DPSceneHost *sHost = [[DPSceneHost alloc] initWithBundleID:secondary];
-    [self.splitManager attachPrimaryHost:pHost];
+    BOOL primaryIsHome = !primary.length || [primary isEqualToString:@"com.apple.springboard"];
+    DPSceneHost *pHost = primaryIsHome ? nil : [[DPSceneHost alloc] initWithBundleID:primary];
+    DPSceneHost *sHost = reusableSecondaryHost ?: [[DPSceneHost alloc] initWithBundleID:secondary];
+    if (pHost) [self.splitManager attachPrimaryHost:pHost];
     [self.splitManager attachSecondaryHost:sHost];
 
     self.mode = DPPresentationModeSplit;
@@ -435,7 +456,7 @@
     [self ensureSceneThenAttach:secondary host:sHost onAttached:^{
         [weakSelf bringOverlayToFront];
     }];
-    if (primary.length && ![primary isEqualToString:@"com.apple.springboard"]) {
+    if (pHost) {
         [self ensureSceneThenAttach:primary host:pHost onAttached:^{
             [weakSelf bringOverlayToFront];
         }];
@@ -716,10 +737,10 @@
 - (CGRect)initialFloatingFrameInBounds:(CGRect)bounds {
     CGRect last = [DPSettings shared].lastFloatingFrame;
     if (!CGRectIsNull(last) && !CGRectIsEmpty(last)) {
-        last.origin.x = MIN(MAX(0, last.origin.x), bounds.size.width - 80);
-        last.origin.y = MIN(MAX(0, last.origin.y), bounds.size.height - 80);
         last.size.width = MIN(last.size.width, bounds.size.width);
         last.size.height = MIN(last.size.height, bounds.size.height);
+        last.origin.x = MIN(MAX(0, last.origin.x), MAX(0, bounds.size.width - last.size.width));
+        last.origin.y = MIN(MAX(0, last.origin.y), MAX(0, bounds.size.height - last.size.height));
         return last;
     }
     CGSize size = [DPSettings shared].defaultFloatingSize;

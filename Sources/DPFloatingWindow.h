@@ -19,6 +19,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (instancetype)initWithBundleID:(NSString *)bundleID frame:(CGRect)frame;
 - (void)attachSceneHost:(DPSceneHost *)host;
+- (nullable DPSceneHost *)detachSceneHost;
 - (void)commitSceneLayout;
 - (void)setActive:(BOOL)active animated:(BOOL)animated;
 - (void)bringToFront;

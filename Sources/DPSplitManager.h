@@ -25,6 +25,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)attachPrimaryHost:(DPSceneHost *)host;
 - (void)attachSecondaryHost:(DPSceneHost *)host;
+- (nullable DPSceneHost *)detachPrimaryHost;
+- (nullable DPSceneHost *)detachSecondaryHost;
 - (void)setRatio:(CGFloat)ratio animated:(BOOL)animated;
 - (void)swapSidesAnimated:(BOOL)animated;
 - (void)dismissAnimated:(BOOL)animated completion:(void (^ _Nullable)(void))completion;

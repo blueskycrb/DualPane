@@ -19,13 +19,13 @@
 @property (nonatomic, assign) NSInteger attemptCount;
 @property (nonatomic, assign) BOOL attaching;
 @property (nonatomic, assign) BOOL snapshotAttempted;
-@property (nonatomic, assign) BOOL sceneSettingsUpdateScheduled;
-@property (nonatomic, assign) NSUInteger sceneSettingsGeneration;
 @property (nonatomic, assign) CGSize lastCommittedSceneSize;
+@property (nonatomic, assign) CGSize nativeSceneSize;
 @property (nonatomic, strong, nullable) dispatch_source_t keepAliveTimer;
 @property (nonatomic, strong, nullable) id processAssertion;
 @property (nonatomic, assign) BOOL processAssertionAttempted;
 @property (nonatomic, strong, nullable) id retainedSceneController; // 防止 VC 被释放
+- (void)layoutHostView;
 @end
 
 @implementation DPSceneHost
@@ -49,6 +49,7 @@
                            bundleID ?: @"app", self];
         _attemptCount = 0;
         _lastCommittedSceneSize = CGSizeZero;
+        _nativeSceneSize = CGSizeZero;
         [self buildPlaceholder];
         // 延迟到有 frame 后再挂，避免 0x0 尺寸创建坏的 host view
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -696,6 +697,11 @@
     if (!settings) return NO;
 
     @try {
+        SEL setContentState = NSSelectorFromString(@"_setContentState:");
+        if (foreground && [self.scene respondsToSelector:setContentState]) {
+            ((void (*)(id, SEL, NSInteger))objc_msgSend)(self.scene, setContentState, 2);
+        }
+
         SEL setForeground = NSSelectorFromString(@"setForeground:");
         if ([settings respondsToSelector:setForeground]) {
             ((void (*)(id, SEL, BOOL))objc_msgSend)(settings, setForeground, foreground);
@@ -746,10 +752,25 @@
         if (![container isKindOfClass:[UIView class]]) return nil;
 
         UIView *containerView = (UIView *)container;
-        CGSize size = self.view.bounds.size;
-        if (size.width < 2 || size.height < 2) size = CGSizeMake(180, 320);
+        CGSize size = self.nativeSceneSize;
+        if (size.width < 2 || size.height < 2) size = [UIScreen mainScreen].bounds.size;
         containerView.frame = CGRectMake(0, 0, size.width, size.height);
         containerView.clipsToBounds = YES;
+
+        SEL setPresentationContext = NSSelectorFromString(@"_setPresentationContext:");
+        Class contextClass = NSClassFromString(@"UIScenePresentationContext");
+        if ([container respondsToSelector:setPresentationContext] && contextClass) {
+            id context = [contextClass alloc];
+            SEL defaultInit = NSSelectorFromString(@"_initWithDefaultValues");
+            if ([context respondsToSelector:defaultInit]) {
+                context = ((id (*)(id, SEL))objc_msgSend)(context, defaultInit);
+            } else {
+                context = ((id (*)(id, SEL))objc_msgSend)(context, @selector(init));
+            }
+            if (context) {
+                ((void (*)(id, SEL, id))objc_msgSend)(container, setPresentationContext, context);
+            }
+        }
 
         id containerScene = scene;
         SEL sceneSelector = NSSelectorFromString(@"scene");
@@ -897,8 +918,9 @@
         id scene = [self findFBScene];
         self.scene = scene;
         if (scene) {
-            CGSize size = self.view.bounds.size;
-            if (size.width < 2 || size.height < 2) size = CGSizeMake(180, 320);
+            CGSize size = [UIScreen mainScreen].bounds.size;
+            if (size.width < 2 || size.height < 2) size = CGSizeMake(390, 844);
+            self.nativeSceneSize = size;
             [self applySceneForeground:YES backgrounded:NO size:size includeFrame:YES];
 
             UIView *hv = [self hostViewFromFBScene:scene];
@@ -1031,8 +1053,8 @@
     if (!hostView) return;
 
     if (self.hostView == hostView && hostView.superview == self.view) {
-        hostView.frame = self.view.bounds;
         self.scene = scene ?: self.scene;
+        [self layoutHostView];
         self.placeholder.hidden = YES;
         self.snapshotView.hidden = YES;
         self.live = YES;
@@ -1046,11 +1068,14 @@
     self.hostView = hostView;
     self.scene = scene;
     self.lastCommittedSceneSize = CGSizeZero;
-    hostView.frame = self.view.bounds;
-    hostView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    if (self.nativeSceneSize.width < 2 || self.nativeSceneSize.height < 2) {
+        self.nativeSceneSize = [UIScreen mainScreen].bounds.size;
+    }
+    hostView.autoresizingMask = UIViewAutoresizingNone;
     hostView.clipsToBounds = YES;
     [self.view addSubview:hostView];
     [self.view bringSubviewToFront:hostView];
+    [self layoutHostView];
 
     self.placeholder.hidden = YES;
     self.snapshotView.hidden = YES;
@@ -1060,6 +1085,21 @@
     [self startSceneKeepAlive];
     [self acquireProcessAssertionIfNeeded];
     NSLog(@"[DualPane] LIVE attach %@ view=%@", self.bundleID, NSStringFromClass([hostView class]));
+}
+
+- (void)layoutHostView {
+    if (!self.hostView) return;
+
+    CGSize target = self.view.bounds.size;
+    CGSize canvas = self.nativeSceneSize;
+    if (canvas.width < 2 || canvas.height < 2) canvas = [UIScreen mainScreen].bounds.size;
+    if (target.width < 1 || target.height < 1 || canvas.width < 1 || canvas.height < 1) return;
+
+    self.hostView.transform = CGAffineTransformIdentity;
+    self.hostView.bounds = CGRectMake(0, 0, canvas.width, canvas.height);
+    self.hostView.center = CGPointMake(target.width / 2.0, target.height / 2.0);
+    self.hostView.transform = CGAffineTransformMakeScale(target.width / canvas.width,
+                                                         target.height / canvas.height);
 }
 
 - (void)applySnapshotFallback {
@@ -1195,32 +1235,12 @@
     } else {
         self.view.frame = frame;
     }
-    self.hostView.frame = self.view.bounds;
+    [self layoutHostView];
     self.placeholder.frame = self.view.bounds;
     self.snapshotView.frame = self.view.bounds;
-    if (self.live && self.scene) {
-        [self scheduleSceneSettingsUpdate];
-    }
-}
-
-- (void)scheduleSceneSettingsUpdate {
-    if (!self.live || !self.scene || self.sceneSettingsUpdateScheduled) return;
-
-    self.sceneSettingsUpdateScheduled = YES;
-    NSUInteger generation = ++self.sceneSettingsGeneration;
-    __weak typeof(self) weakSelf = self;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.12 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        __strong typeof(weakSelf) self2 = weakSelf;
-        if (!self2 || generation != self2.sceneSettingsGeneration) return;
-        self2.sceneSettingsUpdateScheduled = NO;
-        [self2 updateSceneSettingsWithSize:self2.view.bounds.size];
-    });
 }
 
 - (void)commitHostedFrame {
-    self.sceneSettingsGeneration += 1;
-    self.sceneSettingsUpdateScheduled = NO;
     if (self.live && self.scene) {
         [self updateSceneSettingsWithSize:self.view.bounds.size];
     }
@@ -1229,7 +1249,7 @@
 - (void)updateSceneSettingsWithSize:(CGSize)size {
     if (!self.scene || size.width < 1 || size.height < 1) return;
     if (CGSizeEqualToSize(size, self.lastCommittedSceneSize)) return;
-    if ([self applySceneForeground:YES backgrounded:NO size:size includeFrame:YES]) {
+    if ([self applySceneForeground:YES backgrounded:NO size:CGSizeZero includeFrame:NO]) {
         self.lastCommittedSceneSize = size;
     }
 }
@@ -1263,8 +1283,6 @@
 }
 
 - (void)invalidate {
-    self.sceneSettingsGeneration += 1;
-    self.sceneSettingsUpdateScheduled = NO;
     [self stopSceneKeepAlive];
     [self releaseProcessAssertion];
     if (self.scene) {
@@ -1309,6 +1327,7 @@
     [self.view removeFromSuperview];
     self.scene = nil;
     self.sceneHandle = nil;
+    self.nativeSceneSize = CGSizeZero;
     self.live = NO;
 }
 
