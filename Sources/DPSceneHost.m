@@ -782,7 +782,7 @@
             }
         }
 
-        if (created > 0 || containerView.subviews.count > 0) {
+        if (created > 0) {
             NSLog(@"[DualPane] layer container attached %@ layers=%@", self.bundleID, @(created));
             return containerView;
         }

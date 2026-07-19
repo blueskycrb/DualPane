@@ -73,13 +73,13 @@ Manual trigger: Actions → Build DualPane → **Run workflow**.
 export THEOS=~/theos
 cd DualPane
 make package FINALPACKAGE=1
-# → packages/com.dualpane.tweak_1.0.6_iphoneos-arm64.deb
+# → packages/com.dualpane.tweak_1.0.7_iphoneos-arm64.deb
 ```
 
 Install on device:
 
 ```bash
-dpkg -i com.dualpane.tweak_1.0.6_iphoneos-arm64.deb
+dpkg -i com.dualpane.tweak_1.0.7_iphoneos-arm64.deb
 sbreload   # or respring from Settings → DualPane
 ```
 
@@ -169,4 +169,4 @@ dpkg -i com.dualpane.tweak_*.deb && sbreload
 
 **Repo:** https://github.com/blueskycrb/DualPane  
 **Package:** `com.dualpane.tweak`  
-**Version:** 1.0.6
+**Version:** 1.0.7
