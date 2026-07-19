@@ -40,9 +40,7 @@ jobs:
 
       - name: Install Theos
         run: |
-          # roothide/theos scans plists with `od | head`; pipefail turns
-          # macOS od's expected SIGPIPE into a packaging failure.
-          set -eu
+          set -euo pipefail
           git clone --depth=1 --recurse-submodules https://github.com/roothide/theos.git "$HOME/theos"
           echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
           echo "$HOME/theos/bin" >> "$GITHUB_PATH"
@@ -54,7 +52,9 @@ jobs:
         env:
           THEOS: ${{ env.THEOS }}
         run: |
-          set -euo pipefail
+          # roothide/theos scans plists with `od | head`; pipefail turns
+          # macOS od's expected SIGPIPE into a packaging failure.
+          set -eu
           export THEOS="${THEOS:-$HOME/theos}"
           echo "THEOS=$THEOS"
           echo "SDK: $(xcrun --show-sdk-path --sdk iphoneos)"
