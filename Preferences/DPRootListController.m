@@ -43,9 +43,11 @@ static BOOL DPValueForGestureKey(NSString *key, BOOL fallback) {
         (void)action;
         pid_t pid;
         const char *args[] = { "sbreload", NULL };
-        if (posix_spawn(&pid, jbroot(@"/usr/bin/sbreload"), NULL, NULL, (char *const *)args, NULL) != 0) {
+        NSString *sbreloadPath = jbroot(@"/usr/bin/sbreload");
+        if (posix_spawn(&pid, sbreloadPath.fileSystemRepresentation, NULL, NULL, (char *const *)args, NULL) != 0) {
             const char *args2[] = { "killall", "-9", "SpringBoard", NULL };
-            posix_spawn(&pid, jbroot(@"/usr/bin/killall"), NULL, NULL, (char *const *)args2, NULL);
+            NSString *killallPath = jbroot(@"/usr/bin/killall");
+            posix_spawn(&pid, killallPath.fileSystemRepresentation, NULL, NULL, (char *const *)args2, NULL);
         }
     }]];
     [self presentViewController:alert animated:YES completion:nil];
