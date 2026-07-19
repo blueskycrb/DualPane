@@ -10,6 +10,9 @@
 @property (nonatomic, strong, nullable) id scene;
 @property (nonatomic, strong, nullable) id sceneHandle;
 @property (nonatomic, strong, nullable) UIView *hostView;
+@property (nonatomic, strong, nullable) UIView *externalSceneContainer;
+@property (nonatomic, copy) NSArray *hostedExternalLayers;
+@property (nonatomic, assign) NSUInteger externalRefreshGeneration;
 @property (nonatomic, strong, nullable) UIView *placeholder;
 @property (nonatomic, strong, nullable) UIImageView *iconView;
 @property (nonatomic, strong, nullable) UIImageView *snapshotView;
@@ -29,6 +32,9 @@
 - (void)enableInteractionInView:(UIView *)view;
 - (void)scheduleReconnect;
 - (void)stopReconnect;
+- (void)scheduleExternalSceneRefresh;
+- (void)refreshExternalSceneHosts;
+- (void)clearExternalSceneHosts;
 @property (nonatomic, strong, nullable) id retainedSceneController; // 防止 VC 被释放
 - (void)layoutHostView;
 @end
@@ -838,6 +844,116 @@
     return [self layerContainerViewFromScene:scene];
 }
 
+- (NSArray *)externalSceneLayers {
+    if (!self.scene) return @[];
+
+    id layerManager = nil;
+    SEL managerSelector = NSSelectorFromString(@"layerManager");
+    @try {
+        if ([self.scene respondsToSelector:managerSelector]) {
+            layerManager = ((id (*)(id, SEL))objc_msgSend)(self.scene, managerSelector);
+        } else {
+            layerManager = [self.scene valueForKey:@"layerManager"];
+        }
+    } @catch (__unused NSException *exception) {}
+    if (!layerManager) return @[];
+
+    id layers = nil;
+    SEL layersSelector = NSSelectorFromString(@"layers");
+    @try {
+        if ([layerManager respondsToSelector:layersSelector]) {
+            layers = ((id (*)(id, SEL))objc_msgSend)(layerManager, layersSelector);
+        } else {
+            layers = [layerManager valueForKey:@"layers"];
+        }
+    } @catch (__unused NSException *exception) {}
+
+    NSMutableArray *external = [NSMutableArray array];
+    for (id layer in [self arrayFromCollection:layers]) {
+        id externalSceneID = nil;
+        @try {
+            SEL selector = NSSelectorFromString(@"externalSceneID");
+            if ([layer respondsToSelector:selector]) {
+                externalSceneID = ((id (*)(id, SEL))objc_msgSend)(layer, selector);
+            } else {
+                externalSceneID = [layer valueForKey:@"externalSceneID"];
+            }
+        } @catch (__unused NSException *exception) {}
+        if (externalSceneID && externalSceneID != [NSNull null]) {
+            [external addObject:layer];
+        }
+    }
+    return [external copy];
+}
+
+- (void)scheduleExternalSceneRefresh {
+    NSUInteger generation = ++self.externalRefreshGeneration;
+    NSArray<NSNumber *> *delays = @[@0.0, @0.12, @0.3, @0.6, @1.0];
+    __weak typeof(self) weakSelf = self;
+    for (NSNumber *delay in delays) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
+                                     (int64_t)(delay.doubleValue * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            __strong typeof(weakSelf) self2 = weakSelf;
+            if (!self2 || generation != self2.externalRefreshGeneration) return;
+            [self2 refreshExternalSceneHosts];
+        });
+    }
+}
+
+- (void)refreshExternalSceneHosts {
+    NSArray *layers = [self externalSceneLayers];
+    if (layers.count == 0) {
+        [self clearExternalSceneHosts];
+        return;
+    }
+
+    UIView *root = self.view.window.rootViewController.view;
+    if (!root) return;
+    if ([layers isEqualToArray:self.hostedExternalLayers]
+        && self.externalSceneContainer.superview == root) {
+        self.externalSceneContainer.frame = root.bounds;
+        [root bringSubviewToFront:self.externalSceneContainer];
+        return;
+    }
+
+    Class externalHostClass = NSClassFromString(@"_UIExternalSceneLayerHostView");
+    SEL initializer = NSSelectorFromString(@"initWithSceneLayer:parentScene:");
+    if (!externalHostClass || ![externalHostClass instancesRespondToSelector:initializer]) return;
+
+    UIView *container = [[UIView alloc] initWithFrame:root.bounds];
+    container.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    container.backgroundColor = [UIColor clearColor];
+    container.userInteractionEnabled = NO;
+    NSUInteger created = 0;
+    for (id layer in layers) {
+        @try {
+            id allocated = [externalHostClass alloc];
+            UIView *host = ((id (*)(id, SEL, id, id))objc_msgSend)(
+                allocated, initializer, layer, self.scene);
+            if (![host isKindOfClass:[UIView class]]) continue;
+            host.frame = container.bounds;
+            host.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            [container addSubview:host];
+            created += 1;
+        } @catch (__unused NSException *exception) {}
+    }
+    if (created == 0) return;
+
+    [self clearExternalSceneHosts];
+    self.hostedExternalLayers = [layers copy];
+    self.externalSceneContainer = container;
+    [root addSubview:container];
+    [root bringSubviewToFront:container];
+    NSLog(@"[DualPane] external scene hosts %@ layers=%@", self.bundleID, @(created));
+}
+
+- (void)clearExternalSceneHosts {
+    [self.externalSceneContainer removeFromSuperview];
+    self.externalSceneContainer = nil;
+    self.hostedExternalLayers = @[];
+}
+
 #pragma mark - Snapshot / icon
 
 - (UIImage *)iconImageLarge {
@@ -966,6 +1082,7 @@
         if (!self2 || !self2.live || !self2.scene) return;
         [self2 applySceneForeground:YES backgrounded:NO size:CGSizeZero includeFrame:NO];
         [self2 acquireProcessAssertionIfNeeded];
+        [self2 refreshExternalSceneHosts];
     });
     self.keepAliveTimer = timer;
     dispatch_resume(timer);
@@ -1333,6 +1450,7 @@
     [self enableInteractionInView:self.hostView];
     self.view.userInteractionEnabled = YES;
     [self applySceneForeground:YES backgrounded:NO size:CGSizeZero includeFrame:NO];
+    [self scheduleExternalSceneRefresh];
 }
 
 - (void)setHostedFrame:(CGRect)frame {
@@ -1373,6 +1491,8 @@
 - (void)retryAttach {
     if (self.attaching) return;
     NSLog(@"[DualPane] retryAttach #%@ %@", @(self.attemptCount + 1), self.bundleID);
+    self.externalRefreshGeneration += 1;
+    [self clearExternalSceneHosts];
     [self stopSceneKeepAlive];
     [self releaseProcessAssertion];
     [self.hostView removeFromSuperview];
@@ -1389,6 +1509,8 @@
 }
 
 - (void)invalidate {
+    self.externalRefreshGeneration += 1;
+    [self clearExternalSceneHosts];
     [self stopSceneKeepAlive];
     [self stopReconnect];
     [self releaseProcessAssertion];
