@@ -826,15 +826,16 @@
 - (UIView *)hostViewFromFBScene:(id)scene {
     if (!scene) return nil;
 
-    UIView *layerContainer = [self layerContainerViewFromScene:scene];
-    if (layerContainer) return layerContainer;
-
+    // FBSceneHostWrapperView owns window-server hit testing and remote input.
+    // The layer container fallback can render pixels but cannot reliably route
+    // text input or keyboard focus back to the hosted application.
     id hostManager = [self hostManagerFromScene:scene];
     if (hostManager) {
         UIView *hv = [self invokeHostViewForRequester:hostManager];
         if (hv) return hv;
     }
-    return nil;
+
+    return [self layerContainerViewFromScene:scene];
 }
 
 #pragma mark - Snapshot / icon
@@ -1286,6 +1287,13 @@
     [self enableHostingOnManager:hostManager];
 
     NSString *requester = self.requesterToken ?: @"DualPane";
+    SEL orderFront = NSSelectorFromString(@"orderRequesterFront:");
+    if ([hostManager respondsToSelector:orderFront]) {
+        @try {
+            ((void (*)(id, SEL, id))objc_msgSend)(hostManager, orderFront, requester);
+        } @catch (__unused NSException *exception) {}
+    }
+
     for (NSString *name in @[@"setInteractionEnabled:forRequester:",
                              @"setAllowsInteraction:forRequester:",
                              @"setUserInteractionEnabled:forRequester:",
