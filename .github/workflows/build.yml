@@ -11,7 +11,7 @@ on:
 
 jobs:
   build:
-    name: Theos rootless package
+    name: Theos rootful arm64e package
     runs-on: macos-14
     timeout-minutes: 45
     permissions:
@@ -62,11 +62,19 @@ jobs:
           deb="$(find packages -maxdepth 1 -type f -name '*.deb' -print -quit)"
           test -n "$deb"
           version="$(dpkg-deb -f "$deb" Version)"
-          output="packages/DualPane_${version}_arm64e_rootless.deb"
+          test "$(dpkg-deb -f "$deb" Architecture)" = "iphoneos-arm64"
+          output="packages/DualPane_${version}_arm64e_rootful.deb"
           mv "$deb" "$output"
 
           extract_dir="$(mktemp -d)"
           dpkg-deb -x "$output" "$extract_dir"
+
+          # This release is intentionally rootful: files must be staged under
+          # the real system paths, never under /var/jb.
+          test -f "$extract_dir/Library/MobileSubstrate/DynamicLibraries/DualPane.dylib"
+          test -f "$extract_dir/Library/PreferenceBundles/DualPanePrefs.bundle/DualPanePrefs"
+          ! find "$extract_dir" -path '*/var/jb/*' -print -quit | grep -q .
+
           found_macho=0
           while IFS= read -r candidate; do
             if archs="$(lipo -archs "$candidate" 2>/dev/null)"; then

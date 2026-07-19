@@ -1,8 +1,8 @@
 Package: com.dualpane.tweak
 Name: DualPane
-Version: 1.0.8
+Version: 1.0.9
 Architecture: iphoneos-arm64
-Description: Bootstrap floating window and split-screen (icon swipe / long-press). iOS 15-16.5.1 rootless.
+Description: Bootstrap floating window and split-screen (icon swipe / long-press). iOS 15-16.5.1 rootful arm64e.
 Maintainer: DualPane Contributors
 Author: DualPane Contributors
 Section: Tweaks

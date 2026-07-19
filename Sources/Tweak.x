@@ -396,7 +396,9 @@ static NSArray *DPInjectedShortcutItems(void) {
         } @catch (__unused NSException *e) {}
     }
 
-    BOOL shouldSuppress = [[DPWindowManager shared] shouldSuppressFullscreenForBundleID:bid];
+    BOOL reroutedToSplit = [[DPWindowManager shared] handleAppLaunchInActiveSplit:bid];
+    BOOL shouldSuppress = reroutedToSplit
+        || [[DPWindowManager shared] shouldSuppressFullscreenForBundleID:bid];
     BOOL ok = %orig;
     if (shouldSuppress && bid.length) {
         NSLog(@"[DualPane] transition 后补救回桌面: %@", bid);
@@ -410,6 +412,22 @@ static NSArray *DPInjectedShortcutItems(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         [[DPWindowManager shared] handleOrientationChange];
     });
+}
+
+%end
+
+// A hosted text control lives inside the SpringBoard-owned overlay window.
+// Make that window key only for the duration of text input so UIKit can show
+// the system keyboard without changing normal passthrough behavior.
+%hook UIView
+
+- (BOOL)becomeFirstResponder {
+    Class overlayClass = NSClassFromString(@"DPPassthroughWindow");
+    BOOL isHosted = overlayClass && [self.window isKindOfClass:overlayClass];
+    if (isHosted) {
+        [[DPWindowManager shared] prepareForHostedInput];
+    }
+    return %orig;
 }
 
 %end

@@ -34,6 +34,8 @@ typedef NS_ENUM(NSInteger, DPPresentationMode) {
 - (void)openBundleID:(NSString *)bundleID inMode:(DPPresentationMode)mode;
 - (void)openFloatingWithBundleID:(NSString *)bundleID;
 - (void)openSplitWithPrimary:(NSString *)primary secondary:(NSString *)secondary;
+- (BOOL)handleAppLaunchInActiveSplit:(nullable NSString *)bundleID;
+- (void)prepareForHostedInput;
 - (void)dismissAllAnimated:(BOOL)animated;
 - (void)handleOrientationChange;
 

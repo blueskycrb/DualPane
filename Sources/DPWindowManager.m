@@ -21,6 +21,8 @@
 @property (nonatomic, assign) BOOL suppressLaunch;
 @property (nonatomic, assign) BOOL homeReturnPending;
 @property (nonatomic, copy, nullable) NSString *pendingHomeBundleID;
+@property (nonatomic, weak, nullable) UIWindow *keyWindowBeforeHostedInput;
+@property (nonatomic, assign) BOOL hostedInputActive;
 - (void)openFloatingWithBundleID:(NSString *)bundleID reusingHost:(nullable DPSceneHost *)reusableHost;
 - (void)openSplitWithPrimary:(NSString *)primary
                    secondary:(NSString *)secondary
@@ -47,10 +49,15 @@
         _mode = DPPresentationModeNone;
         _suppressLaunch = NO;
         _homeReturnPending = NO;
+        _hostedInputActive = NO;
         [[NSNotificationCenter defaultCenter] addObserver:self
-                                                 selector:@selector(settingsChanged)
-                                                     name:kDPSettingsChangedNotification
-                                                   object:nil];
+                                                  selector:@selector(settingsChanged)
+                                                      name:kDPSettingsChangedNotification
+                                                    object:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                  selector:@selector(hostedKeyboardWillHide)
+                                                      name:UIKeyboardWillHideNotification
+                                                    object:nil];
     }
     return self;
 }
@@ -380,6 +387,21 @@
     [self openSplitWithPrimary:primary secondary:secondary reusingSecondaryHost:nil];
 }
 
+- (BOOL)handleAppLaunchInActiveSplit:(NSString *)bundleID {
+    if (!bundleID.length || !self.splitManager.isActive) return NO;
+    if ([bundleID isEqualToString:@"com.apple.springboard"]) return NO;
+    if ([[DPSettings shared] isBundleBlacklisted:bundleID]) return NO;
+
+    NSString *primary = self.splitManager.primaryBundleID;
+    NSString *secondary = self.splitManager.secondaryBundleID;
+    if ([bundleID isEqualToString:primary] || [bundleID isEqualToString:secondary]) return NO;
+
+    // An app launched from the transparent Home pane replaces the current
+    // secondary pane and is immediately hosted instead of becoming fullscreen.
+    [self openSplitWithPrimary:primary ?: @"com.apple.springboard" secondary:bundleID];
+    return YES;
+}
+
 - (void)openSplitWithPrimary:(NSString *)primary
                    secondary:(NSString *)secondary
       reusingSecondaryHost:(DPSceneHost *)reusableSecondaryHost {
@@ -496,6 +518,29 @@
     self.mode = DPPresentationModeNone;
     self.suppressLaunch = NO;
     [self.mutableHostedBundleIDs removeAllObjects];
+    [self hostedKeyboardWillHide];
+}
+
+- (void)prepareForHostedInput {
+    if (!self.overlayWindow || self.overlayWindow.hidden) return;
+    if (!self.hostedInputActive) {
+        UIWindow *current = [UIApplication sharedApplication].keyWindow;
+        if (current != self.overlayWindow) self.keyWindowBeforeHostedInput = current;
+        self.hostedInputActive = YES;
+    }
+    [self.overlayWindow makeKeyAndVisible];
+}
+
+- (void)hostedKeyboardWillHide {
+    if (!self.hostedInputActive) return;
+    self.hostedInputActive = NO;
+    UIWindow *target = self.keyWindowBeforeHostedInput;
+    self.keyWindowBeforeHostedInput = nil;
+    if (target && target != self.overlayWindow && !target.hidden) {
+        [target makeKeyAndVisible];
+    } else if (self.overlayWindow.isKeyWindow) {
+        [self.overlayWindow resignKeyWindow];
+    }
 }
 
 - (void)handleOrientationChange {

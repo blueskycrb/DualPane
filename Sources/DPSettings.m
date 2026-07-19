@@ -3,7 +3,8 @@
 
 NSString * const kDPSettingsChangedNotification = @"com.dualpane.tweak/settings.changed";
 
-static NSString * const kPrefsPath = @"/var/jb/var/mobile/Library/Preferences/com.dualpane.tweak.plist";
+static NSString * const kPrefsPath = @"/var/mobile/Library/Preferences/com.dualpane.tweak.plist";
+static NSString * const kLegacyRootlessPrefsPath = @"/var/jb/var/mobile/Library/Preferences/com.dualpane.tweak.plist";
 static NSString * const kPrefsDomain = @"com.dualpane.tweak";
 
 @interface DPSettings ()
@@ -60,15 +61,14 @@ static NSString * const kPrefsDomain = @"com.dualpane.tweak";
         CFRelease(keys);
     }
 
-    // Fallback: direct file (rootless path)
+    // Fallback: direct file for the rootful package
     if (dict.count == 0) {
         NSDictionary *fileDict = [NSDictionary dictionaryWithContentsOfFile:kPrefsPath];
         if (fileDict) {
             [dict addEntriesFromDictionary:fileDict];
         }
-        // Also try non-rootless legacy path
-        NSDictionary *legacy = [NSDictionary dictionaryWithContentsOfFile:
-            @"/var/mobile/Library/Preferences/com.dualpane.tweak.plist"];
+        // Keep reading settings left by the previous rootless package.
+        NSDictionary *legacy = [NSDictionary dictionaryWithContentsOfFile:kLegacyRootlessPrefsPath];
         if (legacy && dict.count == 0) {
             [dict addEntriesFromDictionary:legacy];
         }

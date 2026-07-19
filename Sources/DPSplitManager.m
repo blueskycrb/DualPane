@@ -6,6 +6,17 @@ static const CGFloat kDPDividerHitWidth = 28.0;
 static const CGFloat kDPDividerVisualWidth = 4.0;
 static const CGFloat kDPSplitToolbarHeight = 40.0;
 
+@interface DPToolbarButton : UIButton
+@end
+
+@implementation DPToolbarButton
+
+- (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event {
+    return CGRectContainsPoint(CGRectInset(self.bounds, -8.0, -8.0), point);
+}
+
+@end
+
 @interface DPSplitContainerView : UIView
 @property (nonatomic, weak, nullable) UIView *passthroughPane;
 @end
@@ -154,6 +165,10 @@ static const CGFloat kDPSplitToolbarHeight = 40.0;
     self.titleLabel.textAlignment = NSTextAlignmentCenter;
     self.titleLabel.text = @"分屏";
 
+    self.closeButton.accessibilityLabel = @"关闭分屏";
+    self.swapButton.accessibilityLabel = @"交换分屏位置";
+    self.floatButton.accessibilityLabel = @"转为悬浮窗";
+
     [self.toolbar addSubview:self.closeButton];
     [self.toolbar addSubview:self.swapButton];
     [self.toolbar addSubview:self.floatButton];
@@ -162,7 +177,7 @@ static const CGFloat kDPSplitToolbarHeight = 40.0;
 }
 
 - (UIButton *)toolButtonWithSymbol:(NSString *)name action:(SEL)action {
-    UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
+    UIButton *btn = [DPToolbarButton buttonWithType:UIButtonTypeSystem];
     if (@available(iOS 13.0, *)) {
         UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:13 weight:UIImageSymbolWeightBold];
         [btn setImage:[UIImage systemImageNamed:name withConfiguration:cfg] forState:UIControlStateNormal];
@@ -227,6 +242,8 @@ static const CGFloat kDPSplitToolbarHeight = 40.0;
     self.swapButton.frame = CGRectMake(44, 6, 28, 28);
     self.floatButton.frame = CGRectMake(80, 6, 28, 28);
     self.titleLabel.frame = CGRectMake(116, 0, toolbarW - 124, kDPSplitToolbarHeight);
+
+    [self.containerView bringSubviewToFront:self.toolbar];
 
     [self.primaryHost setHostedFrame:self.primaryPane.bounds];
     [self.secondaryHost setHostedFrame:self.secondaryPane.bounds];

@@ -1,8 +1,8 @@
-# DualPane — Theos rootless tweak for Bootstrap / iOS 15–16.5.1
+# DualPane — Theos rootful arm64e tweak for Bootstrap / iOS 15–16.5.1
 
 ## Build
 - Requires Theos + iOS SDK on macOS or Linux (`make package FINALPACKAGE=1`)
-- `THEOS_PACKAGE_SCHEME=rootless` is set in the root Makefile
+- `THEOS_PACKAGE_SCHEME=rootful` is set in the root Makefile
 - Output: `packages/com.dualpane.tweak_*_iphoneos-arm64.deb`
 
 ## Layout
@@ -14,4 +14,4 @@
 - Scene hosting resolves FrontBoard private APIs dynamically; falls back to placeholder UI
 - Prefs domain: `com.dualpane.tweak`
 - Darwin notify: `com.dualpane.tweak/settings.changed`
-- Rootless prefs path: `/var/jb/var/mobile/Library/Preferences/com.dualpane.tweak.plist`
+- Rootful prefs path: `/var/mobile/Library/Preferences/com.dualpane.tweak.plist`

@@ -10,7 +10,7 @@
 			<key>label</key>
 			<string>分屏助手</string>
 			<key>footerText</key>
-			<string>适用于 Bootstrap / rootless（iOS 15.0–16.5.1）。支持悬浮窗与左右分屏。推荐：主屏幕图标上滑，或长按图标选「分屏打开」。</string>
+			<string>适用于 Bootstrap / rootful arm64e（iOS 15.0–16.5.1）。支持悬浮窗与左右分屏。推荐：主屏幕图标上滑，或长按图标选「分屏打开」。</string>
 		</dict>
 
 		<dict>
@@ -528,7 +528,7 @@
 			<key>label</key>
 			<string>关于</string>
 			<key>footerText</key>
-			<string>分屏助手 1.0.2 · 适用于 Bootstrap / rootless。第二个应用的真实画面依赖系统私有接口，若显示占位页，请先单独打开一次该应用再试。</string>
+			<string>分屏助手 1.0.2 · 适用于 Bootstrap / rootful arm64e。第二个应用的真实画面依赖系统私有接口，若显示占位页，请先单独打开一次该应用再试。</string>
 		</dict>
 		<dict>
 			<key>cell</key>
