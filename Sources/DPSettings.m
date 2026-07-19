@@ -1,11 +1,14 @@
 #import "DPSettings.h"
 #import <notify.h>
+#import <roothide.h>
 
 NSString * const kDPSettingsChangedNotification = @"com.dualpane.tweak/settings.changed";
 
-static NSString * const kPrefsPath = @"/var/mobile/Library/Preferences/com.dualpane.tweak.plist";
-static NSString * const kLegacyRootlessPrefsPath = @"/var/jb/var/mobile/Library/Preferences/com.dualpane.tweak.plist";
 static NSString * const kPrefsDomain = @"com.dualpane.tweak";
+
+static NSString *DPPreferencesPath(void) {
+    return jbroot(@"/var/mobile/Library/Preferences/com.dualpane.tweak.plist");
+}
 
 @interface DPSettings ()
 @property (nonatomic, strong) NSDictionary *raw;
@@ -61,16 +64,11 @@ static NSString * const kPrefsDomain = @"com.dualpane.tweak";
         CFRelease(keys);
     }
 
-    // Fallback: direct file for the rootful package
+    // CFPreferences is preferred; this fallback resolves the current random jbroot.
     if (dict.count == 0) {
-        NSDictionary *fileDict = [NSDictionary dictionaryWithContentsOfFile:kPrefsPath];
+        NSDictionary *fileDict = [NSDictionary dictionaryWithContentsOfFile:DPPreferencesPath()];
         if (fileDict) {
             [dict addEntriesFromDictionary:fileDict];
-        }
-        // Keep reading settings left by the previous rootless package.
-        NSDictionary *legacy = [NSDictionary dictionaryWithContentsOfFile:kLegacyRootlessPrefsPath];
-        if (legacy && dict.count == 0) {
-            [dict addEntriesFromDictionary:legacy];
         }
     }
 

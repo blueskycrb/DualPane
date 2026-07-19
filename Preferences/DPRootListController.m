@@ -2,6 +2,7 @@
 #import "vendor/include/Preferences/PSSpecifier.h"
 #import <spawn.h>
 #import <notify.h>
+#import <roothide.h>
 
 static BOOL DPValueForGestureKey(NSString *key, BOOL fallback) {
     CFPropertyListRef val = CFPreferencesCopyAppValue((__bridge CFStringRef)key, CFSTR("com.dualpane.tweak"));
@@ -42,9 +43,9 @@ static BOOL DPValueForGestureKey(NSString *key, BOOL fallback) {
         (void)action;
         pid_t pid;
         const char *args[] = { "sbreload", NULL };
-        if (posix_spawn(&pid, "/var/jb/usr/bin/sbreload", NULL, NULL, (char *const *)args, NULL) != 0) {
+        if (posix_spawn(&pid, jbroot(@"/usr/bin/sbreload"), NULL, NULL, (char *const *)args, NULL) != 0) {
             const char *args2[] = { "killall", "-9", "SpringBoard", NULL };
-            posix_spawn(&pid, "/var/jb/usr/bin/killall", NULL, NULL, (char *const *)args2, NULL);
+            posix_spawn(&pid, jbroot(@"/usr/bin/killall"), NULL, NULL, (char *const *)args2, NULL);
         }
     }]];
     [self presentViewController:alert animated:YES completion:nil];

@@ -1,6 +1,6 @@
 # DualPane
 
-**Floating window + true split-screen multitasking** for jailbroken iPhone on **iOS 15.0 – 16.5.1**, built as a **rootful arm64e** tweak for **[Bootstrap](https://github.com/RootHide/Bootstrap)**.
+**Floating window + true split-screen multitasking** for **roothide Bootstrap** on **iOS 15.0 – 16.5.1**, built as an **arm64e** tweak.
 
 中文说明见下方 [中文](#中文).
 
@@ -16,12 +16,12 @@
 | **Activation gestures** | Edge swipe (L/R), 3-finger swipe up, status-bar double-tap, home-indicator long-press. |
 | **Mode chooser** | Optional “Ask every time” prompt: Floating vs Split. |
 | **Preference bundle** | Full Settings pane (EN/中文 labels): sizes, opacity, corner radius, haptics, orientation, favorites, blacklist, respring. |
-| **Rootful / Bootstrap** | Theos default package layout, native arm64e, filter on SpringBoard only. |
+| **roothide Bootstrap** | `THEOS_PACKAGE_SCHEME = roothide`, Debian `iphoneos-arm64e`, native arm64e. |
 
 ## Requirements
 
 - Jailbroken device on **iOS 15.0 – 16.5.1**
-- **Bootstrap** (RootHide) or another jailbreak environment with rootful package support and Substrate / ellekit
+- **RootHide Bootstrap 2.x** with the target app enabled in Bootstrap's App List
 - **PreferenceLoader**
 - To **build**: macOS (or Linux) with [Theos](https://theos.dev), Xcode CLT / iOS SDK ≥ 15
 
@@ -58,12 +58,12 @@ On a real Bootstrap device, DualPane launches the target app suspended, waits br
 
 ### Option A — GitHub Actions (recommended)
 
-Every push to `main` verifies the rootful package build on `macos-14` with Theos. Published releases provide the `.deb` directly, without a ZIP artifact:
-The packaged tweak and preference bundle are native `arm64e` Mach-O binaries for Bootstrap. The Debian package metadata remains `iphoneos-arm64`, which is the package-manager architecture name used by iOS package managers.
+Every push to `main` verifies the roothide package build on `macos-14` with `roothide/theos`. Published releases provide the `.deb` directly, without a ZIP artifact:
+The packaged tweak and preference bundle are native `arm64e` Mach-O binaries. The Debian package metadata is `iphoneos-arm64e`.
 
 1. Open **Releases**
 2. Select the latest version
-3. Download `DualPane_<version>_arm64e_rootful.deb`
+3. Download `DualPane_<version>_arm64e_roothide.deb`
 
 Manual trigger: Actions → Build DualPane → **Run workflow**.
 
@@ -73,13 +73,13 @@ Manual trigger: Actions → Build DualPane → **Run workflow**.
 export THEOS=~/theos
 cd DualPane
 make package FINALPACKAGE=1
-# → packages/com.dualpane.tweak_1.0.9_iphoneos-arm64.deb
+# → packages/com.dualpane.tweak_1.1.0_iphoneos-arm64e.deb
 ```
 
 Install on device:
 
 ```bash
-dpkg -i com.dualpane.tweak_1.0.9_iphoneos-arm64.deb
+dpkg -i com.dualpane.tweak_1.1.0_iphoneos-arm64e.deb
 sbreload   # or respring from Settings → DualPane
 ```
 
@@ -126,13 +126,13 @@ MIT — see [LICENSE](LICENSE).
 
 - [Theos](https://theos.dev)
 - [Bootstrap (RootHide)](https://github.com/RootHide/Bootstrap)
-- Community research on FBScene / rootful packaging
+- Community research on FBScene / roothide packaging
 
 ---
 
 ## 中文
 
-**DualPane** 是面向 **iOS 15.0–16.5.1**、适配 **Bootstrap / rootful arm64e** 环境的 SpringBoard 插件，提供：
+**DualPane** 是面向 **iOS 15.0–16.5.1**、适配 **RootHide Bootstrap / roothide arm64e** 环境的 SpringBoard 插件，提供：
 
 - **悬浮窗**：可拖动、缩放、捏合，支持关闭 / 转分屏 / 最大化  
 - **真分屏**：左右或上下布局，中间分割条可拖，支持交换与转悬浮  
@@ -169,4 +169,4 @@ dpkg -i com.dualpane.tweak_*.deb && sbreload
 
 **Repo:** https://github.com/blueskycrb/DualPane  
 **Package:** `com.dualpane.tweak`  
-**Version:** 1.0.9
+**Version:** 1.1.0
