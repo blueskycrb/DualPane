@@ -1,4 +1,5 @@
 #import "DPPassthroughWindow.h"
+#import "DPWindowManager.h"
 
 @implementation DPPassthroughView
 
@@ -12,6 +13,20 @@
 @end
 
 @implementation DPPassthroughWindow
+
+- (void)sendEvent:(UIEvent *)event {
+    if (event.type == UIEventTypeTouches) {
+        for (UITouch *touch in event.allTouches) {
+            if (touch.phase == UITouchPhaseBegan && touch.window == self) {
+                // The text field lives in the hosted app process, so its
+                // becomeFirstResponder call never reaches SpringBoard.
+                [[DPWindowManager shared] prepareForHostedInput];
+                break;
+            }
+        }
+    }
+    [super sendEvent:event];
+}
 
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];

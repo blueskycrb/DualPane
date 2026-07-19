@@ -359,6 +359,11 @@ static const CGFloat kDPSplitToolbarHeight = 40.0;
     [self.secondaryHost commitHostedFrame];
 }
 
+- (void)prepareHostsForInput {
+    [self.primaryHost prepareForInput];
+    [self.secondaryHost prepareForInput];
+}
+
 - (void)swapSidesAnimated:(BOOL)animated {
     NSString *tmp = self.primaryBundleID;
     self.primaryBundleID = self.secondaryBundleID;

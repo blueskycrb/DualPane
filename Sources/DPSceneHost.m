@@ -1229,6 +1229,13 @@
 
 #pragma mark - Public
 
+- (void)prepareForInput {
+    if (!self.scene || !self.live) return;
+    id hostManager = [self hostManagerFromScene:self.scene];
+    [self enableHostingOnManager:hostManager];
+    [self applySceneForeground:YES backgrounded:NO size:CGSizeZero includeFrame:NO];
+}
+
 - (void)setHostedFrame:(CGRect)frame {
     if (self.view.superview) {
         self.view.frame = self.view.superview.bounds;

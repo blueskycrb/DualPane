@@ -123,7 +123,7 @@ static id DPSettingsByKeepingSceneForeground(id scene, id settings) {
 
 // ── 图标上滑 ───────────────────────────────────────────────────────────────
 
-@interface DPIconGestureTarget : NSObject
+@interface DPIconGestureTarget : NSObject <UIGestureRecognizerDelegate>
 @property (nonatomic, weak) UIView *iconView;
 - (void)handleSwipe:(UISwipeGestureRecognizer *)gr;
 - (void)handleLongPress:(UILongPressGestureRecognizer *)gr;
@@ -159,7 +159,21 @@ static id DPSettingsByKeepingSceneForeground(id scene, id settings) {
     // 系统快捷菜单可能失效：用我们自己的选择面板（走 WindowManager 的 mode chooser）
     DPHaptic();
     // 直接走询问模式，界面更统一，也避免 SpringBoard present 失败
-    [[DPWindowManager shared] handleActivationForBundleID:bid preferredMode:DPPresentationModeNone];
+    [[DPWindowManager shared] handleActivationForBundleID:bid preferredMode:DPPresentationModeSplit];
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer
+        shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other {
+    (void)gestureRecognizer;
+    (void)other;
+    return NO;
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer
+        shouldBeRequiredToFailByGestureRecognizer:(UIGestureRecognizer *)other {
+    (void)gestureRecognizer;
+    (void)other;
+    return NO;
 }
 
 @end
@@ -184,16 +198,27 @@ static void DPAttachIconGestures(UIView *iconView) {
     }
 
     // 长按兜底：仅当系统快捷菜单类不存在时才挂，避免和系统 Haptic Touch 叠在一起
-    if ([[DPSettings shared] isGestureEnabled:DPActivationGestureIconLongPress]
-        && !NSClassFromString(@"SBSApplicationShortcutItem")) {
+    if ([[DPSettings shared] isGestureEnabled:DPActivationGestureIconLongPress]) {
         if (!objc_getAssociatedObject(iconView, &kDPIconLongPressKey)) {
             DPIconGestureTarget *target = [[DPIconGestureTarget alloc] init];
             target.iconView = iconView;
             UILongPressGestureRecognizer *lp = [[UILongPressGestureRecognizer alloc] initWithTarget:target action:@selector(handleLongPress:)];
-            lp.minimumPressDuration = 0.55;
+            lp.minimumPressDuration = 0.42;
+            lp.delegate = target;
             lp.cancelsTouchesInView = YES;
             lp.allowableMovement = 12;
             [iconView addGestureRecognizer:lp];
+
+            for (UIGestureRecognizer *other in iconView.gestureRecognizers) {
+                if (other == lp) continue;
+                NSString *className = NSStringFromClass(other.class);
+                if ([className localizedCaseInsensitiveContainsString:@"long"]
+                    || [className localizedCaseInsensitiveContainsString:@"context"]
+                    || [className localizedCaseInsensitiveContainsString:@"shortcut"]
+                    || [className localizedCaseInsensitiveContainsString:@"haptic"]) {
+                    [other requireGestureRecognizerToFail:lp];
+                }
+            }
             objc_setAssociatedObject(iconView, &kDPIconLongPressKey, target, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
     }
@@ -492,6 +517,21 @@ static NSArray *DPInjectedShortcutItems(void) {
 
 %end
 
+%hook SBHIconView
+
+- (void)didMoveToWindow {
+    %orig;
+    UIView *view = (UIView *)self;
+    if (view.window) DPAttachIconGestures(view);
+}
+
+- (void)setIcon:(id)icon {
+    %orig;
+    DPAttachIconGestures((UIView *)self);
+}
+
+%end
+
 %hook SBIconController
 
 - (void)appIconView:(id)iconView activateShortcut:(id)item withBundleIdentifier:(NSString *)bundleID {
@@ -500,6 +540,13 @@ static NSArray *DPInjectedShortcutItems(void) {
     if (DPHandleShortcutType(type, bundleID, iconView)) {
         return;
     }
+    %orig;
+}
+
+- (void)activateShortcut:(id)item withBundleIdentifier:(NSString *)bundleID forIconView:(id)iconView {
+    NSString *type = nil;
+    @try { type = [item valueForKey:@"type"]; } @catch (__unused NSException *e) {}
+    if (DPHandleShortcutType(type, bundleID, iconView)) return;
     %orig;
 }
 
@@ -513,6 +560,13 @@ static NSArray *DPInjectedShortcutItems(void) {
     if (DPHandleShortcutType(type, bundleID, iconView)) {
         return;
     }
+    %orig;
+}
+
+- (void)activateShortcut:(id)item withBundleIdentifier:(NSString *)bundleID forIconView:(id)iconView {
+    NSString *type = nil;
+    @try { type = [item valueForKey:@"type"]; } @catch (__unused NSException *e) {}
+    if (DPHandleShortcutType(type, bundleID, iconView)) return;
     %orig;
 }
 

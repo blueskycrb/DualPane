@@ -26,7 +26,9 @@
 - (void)openFloatingWithBundleID:(NSString *)bundleID reusingHost:(nullable DPSceneHost *)reusableHost;
 - (void)openSplitWithPrimary:(NSString *)primary
                    secondary:(NSString *)secondary
+        reusingPrimaryHost:(nullable DPSceneHost *)reusablePrimaryHost
       reusingSecondaryHost:(nullable DPSceneHost *)reusableSecondaryHost;
+- (void)openBundleInActiveSplit:(NSString *)bundleID;
 @end
 
 @implementation DPWindowManager
@@ -55,9 +57,13 @@
                                                       name:kDPSettingsChangedNotification
                                                     object:nil];
         [[NSNotificationCenter defaultCenter] addObserver:self
-                                                  selector:@selector(hostedKeyboardWillHide)
-                                                      name:UIKeyboardWillHideNotification
-                                                    object:nil];
+                                                   selector:@selector(hostedKeyboardWillHide)
+                                                       name:UIKeyboardWillHideNotification
+                                                     object:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                   selector:@selector(hostedKeyboardWillShow)
+                                                       name:UIKeyboardWillShowNotification
+                                                     object:nil];
     }
     return self;
 }
@@ -165,8 +171,7 @@
     } else if (mode == DPDefaultModeSplit) {
         [self presentAppPickerWithCompletion:^(NSString *bundleID) {
             if (!bundleID) return;
-            NSString *primary = [self foregroundBundleID] ?: @"com.apple.springboard";
-            [self openSplitWithPrimary:primary secondary:bundleID];
+            [self handleActivationForBundleID:bundleID preferredMode:DPPresentationModeSplit];
         }];
     } else {
         [self presentModeChooser];
@@ -199,6 +204,10 @@
         return;
     }
     if (resolved == DPPresentationModeSplit) {
+        if (self.splitManager.isActive) {
+            [self openBundleInActiveSplit:bundleID];
+            return;
+        }
         // 分屏：左边尽量用当前前台 App；主屏触发时用「桌面占位 + 目标 App」
         NSString *primary = [self foregroundBundleID];
         if (!primary.length ||
@@ -246,8 +255,7 @@
             if (chosen == DPPresentationModeFloating) {
                 [weakSelf openFloatingWithBundleID:bundleID];
             } else if (chosen == DPPresentationModeSplit) {
-                NSString *primary = [weakSelf foregroundBundleID] ?: @"com.apple.springboard";
-                [weakSelf openSplitWithPrimary:primary secondary:bundleID];
+                [weakSelf handleActivationForBundleID:bundleID preferredMode:DPPresentationModeSplit];
             }
         }];
     }];
@@ -276,8 +284,7 @@
     if (mode == DPPresentationModeFloating) {
         [self openFloatingWithBundleID:bundleID];
     } else if (mode == DPPresentationModeSplit) {
-        NSString *primary = [self foregroundBundleID] ?: @"com.apple.springboard";
-        [self openSplitWithPrimary:primary secondary:bundleID];
+        [self handleActivationForBundleID:bundleID preferredMode:DPPresentationModeSplit];
     }
 }
 
@@ -341,7 +348,10 @@
         NSString *secondary = w.bundleID;
         DPSceneHost *reusedHost = [w detachSceneHost];
         [weakSelf closeFloatingWindow:w animated:NO];
-        [weakSelf openSplitWithPrimary:primary secondary:secondary reusingSecondaryHost:reusedHost];
+        [weakSelf openSplitWithPrimary:primary
+                             secondary:secondary
+                   reusingPrimaryHost:nil
+                 reusingSecondaryHost:reusedHost];
     };
     window.onFocus = ^(DPFloatingWindow *w) {
         for (DPFloatingWindow *other in weakSelf.mutableFloatingWindows) {
@@ -384,27 +394,58 @@
 }
 
 - (void)openSplitWithPrimary:(NSString *)primary secondary:(NSString *)secondary {
-    [self openSplitWithPrimary:primary secondary:secondary reusingSecondaryHost:nil];
+    [self openSplitWithPrimary:primary
+                     secondary:secondary
+           reusingPrimaryHost:nil
+         reusingSecondaryHost:nil];
 }
 
 - (BOOL)handleAppLaunchInActiveSplit:(NSString *)bundleID {
     if (!bundleID.length || !self.splitManager.isActive) return NO;
     if ([bundleID isEqualToString:@"com.apple.springboard"]) return NO;
     if ([[DPSettings shared] isBundleBlacklisted:bundleID]) return NO;
+    if ([self.launchAllowlist containsObject:bundleID]) return NO;
 
     NSString *primary = self.splitManager.primaryBundleID;
     NSString *secondary = self.splitManager.secondaryBundleID;
     if ([bundleID isEqualToString:primary] || [bundleID isEqualToString:secondary]) return NO;
 
-    // An app launched from the transparent Home pane replaces the current
-    // secondary pane and is immediately hosted instead of becoming fullscreen.
-    [self openSplitWithPrimary:primary ?: @"com.apple.springboard" secondary:bundleID];
+    [self openBundleInActiveSplit:bundleID];
     return YES;
+}
+
+- (void)openBundleInActiveSplit:(NSString *)bundleID {
+    if (!bundleID.length || !self.splitManager.isActive) return;
+    NSString *primary = self.splitManager.primaryBundleID;
+    NSString *secondary = self.splitManager.secondaryBundleID;
+    if ([bundleID isEqualToString:primary] || [bundleID isEqualToString:secondary]) {
+        [self bringOverlayToFront];
+        return;
+    }
+
+    if ([primary isEqualToString:@"com.apple.springboard"] && secondary.length) {
+        DPSceneHost *promotedHost = [self.splitManager detachSecondaryHost];
+        [self.mutableHostedBundleIDs removeObject:primary];
+        [self.mutableHostedBundleIDs removeObject:secondary];
+        [self.splitManager dismissAnimated:NO completion:nil];
+        self.splitManager = nil;
+        [self openSplitWithPrimary:secondary
+                         secondary:bundleID
+               reusingPrimaryHost:promotedHost
+             reusingSecondaryHost:nil];
+        return;
+    }
+
+    [self openSplitWithPrimary:primary ?: @"com.apple.springboard"
+                     secondary:bundleID
+           reusingPrimaryHost:nil
+         reusingSecondaryHost:nil];
 }
 
 - (void)openSplitWithPrimary:(NSString *)primary
                    secondary:(NSString *)secondary
-      reusingSecondaryHost:(DPSceneHost *)reusableSecondaryHost {
+         reusingPrimaryHost:(DPSceneHost *)reusablePrimaryHost
+       reusingSecondaryHost:(DPSceneHost *)reusableSecondaryHost {
     if (!secondary.length) return;
     if ([[DPSettings shared] isBundleBlacklisted:secondary]) return;
     if ([primary isEqualToString:secondary]) primary = @"com.apple.springboard";
@@ -423,7 +464,12 @@
     UIView *parent = [self contentParent];
 
     if (self.splitManager.isActive) {
+        NSString *oldPrimary = self.splitManager.primaryBundleID;
+        NSString *oldSecondary = self.splitManager.secondaryBundleID;
+        if (oldPrimary) [self.mutableHostedBundleIDs removeObject:oldPrimary];
+        if (oldSecondary) [self.mutableHostedBundleIDs removeObject:oldSecondary];
         [self.splitManager dismissAnimated:NO completion:nil];
+        self.splitManager = nil;
     }
 
     self.splitManager = [[DPSplitManager alloc] init];
@@ -465,7 +511,7 @@
     // 先 layout 再挂 host，避免 0 尺寸
     [self.splitManager layoutForBounds:parent.bounds];
     BOOL primaryIsHome = !primary.length || [primary isEqualToString:@"com.apple.springboard"];
-    DPSceneHost *pHost = primaryIsHome ? nil : [[DPSceneHost alloc] initWithBundleID:primary];
+    DPSceneHost *pHost = primaryIsHome ? nil : (reusablePrimaryHost ?: [[DPSceneHost alloc] initWithBundleID:primary]);
     DPSceneHost *sHost = reusableSecondaryHost ?: [[DPSceneHost alloc] initWithBundleID:secondary];
     if (pHost) [self.splitManager attachPrimaryHost:pHost];
     [self.splitManager attachSecondaryHost:sHost];
@@ -529,6 +575,16 @@
         self.hostedInputActive = YES;
     }
     [self.overlayWindow makeKeyAndVisible];
+    [self.splitManager prepareHostsForInput];
+    for (DPFloatingWindow *window in self.mutableFloatingWindows) {
+        [window.sceneHost prepareForInput];
+    }
+}
+
+- (void)hostedKeyboardWillShow {
+    if (self.mode != DPPresentationModeNone) {
+        [self prepareForHostedInput];
+    }
 }
 
 - (void)hostedKeyboardWillHide {

@@ -16,6 +16,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)initWithBundleID:(NSString *)bundleID;
 - (void)setHostedFrame:(CGRect)frame;
 - (void)commitHostedFrame;
+- (void)prepareForInput;
 - (void)setSuspended:(BOOL)suspended;
 - (void)retryAttach;
 - (void)invalidate;
