@@ -22,9 +22,13 @@
 @property (nonatomic, assign) CGSize lastCommittedSceneSize;
 @property (nonatomic, assign) CGSize nativeSceneSize;
 @property (nonatomic, strong, nullable) dispatch_source_t keepAliveTimer;
+@property (nonatomic, strong, nullable) dispatch_source_t reconnectTimer;
+@property (nonatomic, assign) NSUInteger reconnectAttempts;
 @property (nonatomic, strong, nullable) id processAssertion;
 @property (nonatomic, assign) BOOL processAssertionAttempted;
 - (void)enableInteractionInView:(UIView *)view;
+- (void)scheduleReconnect;
+- (void)stopReconnect;
 @property (nonatomic, strong, nullable) id retainedSceneController; // 防止 VC 被释放
 - (void)layoutHostView;
 @end
@@ -940,6 +944,7 @@
         }
 
         [self applySnapshotFallback];
+        [self scheduleReconnect];
     } @finally {
         self.attaching = NO;
     }
@@ -969,6 +974,38 @@
     if (!self.keepAliveTimer) return;
     dispatch_source_cancel(self.keepAliveTimer);
     self.keepAliveTimer = nil;
+}
+
+- (void)scheduleReconnect {
+    if (self.reconnectTimer || self.live) return;
+
+    self.reconnectAttempts = 0;
+    dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
+                                                      dispatch_get_main_queue());
+    __weak typeof(self) weakSelf = self;
+    dispatch_source_set_timer(timer,
+                              dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.75 * NSEC_PER_SEC)),
+                              (uint64_t)(0.75 * NSEC_PER_SEC),
+                              (uint64_t)(0.1 * NSEC_PER_SEC));
+    dispatch_source_set_event_handler(timer, ^{
+        __strong typeof(weakSelf) self2 = weakSelf;
+        if (!self2 || self2.live || self2.reconnectAttempts >= 20) {
+            [self2 stopReconnect];
+            return;
+        }
+        self2.reconnectAttempts += 1;
+        [self2 retryAttach];
+        if (self2.live) [self2 stopReconnect];
+    });
+    self.reconnectTimer = timer;
+    dispatch_resume(timer);
+}
+
+- (void)stopReconnect {
+    if (!self.reconnectTimer) return;
+    dispatch_source_cancel(self.reconnectTimer);
+    self.reconnectTimer = nil;
+    self.reconnectAttempts = 0;
 }
 
 - (int)hostedApplicationPID {
@@ -1053,12 +1090,15 @@
 - (void)attachHostView:(UIView *)hostView scene:(id)scene {
     if (!hostView) return;
 
+    [self stopReconnect];
+
     if (self.hostView == hostView && hostView.superview == self.view) {
         self.scene = scene ?: self.scene;
         [self layoutHostView];
         self.placeholder.hidden = YES;
         self.snapshotView.hidden = YES;
         self.live = YES;
+        [self prepareForInput];
         [self startSceneKeepAlive];
         return;
     }
@@ -1082,6 +1122,7 @@
     self.snapshotView.hidden = YES;
     self.live = YES;
 
+    [self prepareForInput];
     [self commitHostedFrame];
     [self startSceneKeepAlive];
     [self acquireProcessAssertionIfNeeded];
@@ -1246,6 +1287,7 @@
 
     NSString *requester = self.requesterToken ?: @"DualPane";
     for (NSString *name in @[@"setInteractionEnabled:forRequester:",
+                             @"setAllowsInteraction:forRequester:",
                              @"setUserInteractionEnabled:forRequester:",
                              @"setHostingInteractionEnabled:forRequester:",
                              @"setHostingEnabled:forRequester:"]) {
@@ -1260,6 +1302,22 @@
             BOOL enabled = YES;
             [invocation setArgument:&enabled atIndex:2];
             [invocation setArgument:&requester atIndex:3];
+            [invocation invoke];
+        } @catch (__unused NSException *exception) {}
+    }
+
+    for (NSString *name in @[@"enableInteractionForRequester:",
+                             @"enableUserInteractionForRequester:",
+                             @"enableHostingInteractionForRequester:"]) {
+        SEL selector = NSSelectorFromString(name);
+        if (![hostManager respondsToSelector:selector]) continue;
+        NSMethodSignature *signature = [hostManager methodSignatureForSelector:selector];
+        if (!signature || signature.numberOfArguments < 3) continue;
+        @try {
+            NSInvocation *invocation = [NSInvocation invocationWithMethodSignature:signature];
+            invocation.target = hostManager;
+            invocation.selector = selector;
+            [invocation setArgument:&requester atIndex:2];
             [invocation invoke];
         } @catch (__unused NSException *exception) {}
     }
@@ -1324,6 +1382,7 @@
 
 - (void)invalidate {
     [self stopSceneKeepAlive];
+    [self stopReconnect];
     [self releaseProcessAssertion];
     if (self.scene) {
         [self applySceneForeground:NO backgrounded:YES size:CGSizeZero includeFrame:NO];

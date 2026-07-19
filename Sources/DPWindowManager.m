@@ -20,6 +20,8 @@
 @property (nonatomic, weak, nullable) UIWindow *keyWindowBeforeHostedInput;
 @property (nonatomic, assign) BOOL hostedInputActive;
 - (void)openFloatingWithBundleID:(NSString *)bundleID reusingHost:(nullable DPSceneHost *)reusableHost;
+- (void)makeOverlayKeyWindow;
+- (void)restorePreviousKeyWindow;
 @end
 
 @implementation DPWindowManager
@@ -311,6 +313,7 @@
     [self.mutableFloatingWindows addObject:window];
     self.mode = DPPresentationModeFloating;
     [self bringOverlayToFront];
+    [self makeOverlayKeyWindow];
 
     // layout 后再挂 host，保证 contentContainer 有真实尺寸
     [window setNeedsLayout];
@@ -486,6 +489,7 @@
     if (self.mutableFloatingWindows.count == 0) {
         self.mode = DPPresentationModeNone;
         self.suppressLaunch = NO;
+        [self restorePreviousKeyWindow];
     }
 }
 
@@ -497,10 +501,18 @@
     self.mode = DPPresentationModeNone;
     self.suppressLaunch = NO;
     [self.mutableHostedBundleIDs removeAllObjects];
-    [self hostedKeyboardWillHide];
+    [self restorePreviousKeyWindow];
 }
 
 - (void)prepareForHostedInput {
+    if (!self.overlayWindow || self.overlayWindow.hidden) return;
+    [self makeOverlayKeyWindow];
+    for (DPFloatingWindow *window in self.mutableFloatingWindows) {
+        [window.sceneHost prepareForInput];
+    }
+}
+
+- (void)makeOverlayKeyWindow {
     if (!self.overlayWindow || self.overlayWindow.hidden) return;
     if (!self.hostedInputActive) {
         UIWindow *current = [UIApplication sharedApplication].keyWindow;
@@ -508,8 +520,17 @@
         self.hostedInputActive = YES;
     }
     [self.overlayWindow makeKeyAndVisible];
-    for (DPFloatingWindow *window in self.mutableFloatingWindows) {
-        [window.sceneHost prepareForInput];
+}
+
+- (void)restorePreviousKeyWindow {
+    if (!self.hostedInputActive) return;
+    self.hostedInputActive = NO;
+    UIWindow *target = self.keyWindowBeforeHostedInput;
+    self.keyWindowBeforeHostedInput = nil;
+    if (target && target != self.overlayWindow && !target.hidden) {
+        [target makeKeyAndVisible];
+    } else if (self.overlayWindow.isKeyWindow) {
+        [self.overlayWindow resignKeyWindow];
     }
 }
 
@@ -520,15 +541,11 @@
 }
 
 - (void)hostedKeyboardWillHide {
-    if (!self.hostedInputActive) return;
-    self.hostedInputActive = NO;
-    UIWindow *target = self.keyWindowBeforeHostedInput;
-    self.keyWindowBeforeHostedInput = nil;
-    if (target && target != self.overlayWindow && !target.hidden) {
-        [target makeKeyAndVisible];
-    } else if (self.overlayWindow.isKeyWindow) {
-        [self.overlayWindow resignKeyWindow];
-    }
+    // Keep the overlay key while a hosted app is open. UIKit sends a hide
+    // notification while changing text fields; restoring the old key window
+    // here makes the next input field lose the keyboard immediately.
+    if (self.mutableFloatingWindows.count > 0) return;
+    [self restorePreviousKeyWindow];
 }
 
 - (void)handleOrientationChange {

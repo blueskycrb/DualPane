@@ -1,6 +1,6 @@
 Package: com.dualpane.tweak
 Name: DualPane
-Version: 1.2.0
+Version: 1.2.1
 Architecture: iphoneos-arm64e
 Description: RootHide Bootstrap resizable floating windows (icon swipe / long-press). iOS 15-16.5.1 roothide arm64e.
 Maintainer: DualPane Contributors
