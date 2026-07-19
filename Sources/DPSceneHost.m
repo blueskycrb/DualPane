@@ -13,6 +13,8 @@
 @property (nonatomic, strong, nullable) UIView *externalSceneContainer;
 @property (nonatomic, copy) NSArray *hostedExternalLayers;
 @property (nonatomic, assign) NSUInteger externalRefreshGeneration;
+@property (nonatomic, weak, nullable) id observedLayerManager;
+@property (nonatomic, assign) BOOL observingLayerManager;
 @property (nonatomic, strong, nullable) UIView *placeholder;
 @property (nonatomic, strong, nullable) UIImageView *iconView;
 @property (nonatomic, strong, nullable) UIImageView *snapshotView;
@@ -35,6 +37,12 @@
 - (void)scheduleExternalSceneRefresh;
 - (void)refreshExternalSceneHosts;
 - (void)clearExternalSceneHosts;
+- (void)startObservingLayerManager;
+- (void)stopObservingLayerManager;
+- (nullable Class)externalSceneHostClass;
+- (nullable id)layerManagerFromScene:(id)scene;
+- (BOOL)layerHasExternalSceneID:(id)layer;
+- (void)prepareRemoteKeyboardSupport;
 @property (nonatomic, strong, nullable) id retainedSceneController; // 防止 VC 被释放
 - (void)layoutHostView;
 @end
@@ -844,18 +852,65 @@
     return [self layerContainerViewFromScene:scene];
 }
 
-- (NSArray *)externalSceneLayers {
-    if (!self.scene) return @[];
-
+- (nullable id)layerManagerFromScene:(id)scene {
+    if (!scene) return nil;
     id layerManager = nil;
     SEL managerSelector = NSSelectorFromString(@"layerManager");
     @try {
-        if ([self.scene respondsToSelector:managerSelector]) {
-            layerManager = ((id (*)(id, SEL))objc_msgSend)(self.scene, managerSelector);
+        if ([scene respondsToSelector:managerSelector]) {
+            layerManager = ((id (*)(id, SEL))objc_msgSend)(scene, managerSelector);
         } else {
-            layerManager = [self.scene valueForKey:@"layerManager"];
+            layerManager = [scene valueForKey:@"layerManager"];
         }
     } @catch (__unused NSException *exception) {}
+    return layerManager;
+}
+
+- (BOOL)layerHasExternalSceneID:(id)layer {
+    if (!layer) return NO;
+    // Prefer the FrontBoard external marker first. Some layer objects expose
+    // sceneID for the keyboard extension scene as a secondary fallback.
+    for (NSString *key in @[@"externalSceneID", @"sceneID"]) {
+        @try {
+            SEL selector = NSSelectorFromString(key);
+            id value = nil;
+            if ([layer respondsToSelector:selector]) {
+                value = ((id (*)(id, SEL))objc_msgSend)(layer, selector);
+            } else if ([layer respondsToSelector:NSSelectorFromString(@"valueForKey:")]) {
+                value = [layer valueForKey:key];
+            }
+            if ([value isKindOfClass:[NSString class]] && [(NSString *)value length] > 0) {
+                // sceneID alone is only accepted for FBSExternalSceneLayer-like classes.
+                if ([key isEqualToString:@"sceneID"]) {
+                    NSString *className = NSStringFromClass([layer class]);
+                    if ([className rangeOfString:@"External" options:NSCaseInsensitiveSearch].location == NSNotFound) {
+                        continue;
+                    }
+                }
+                return YES;
+            }
+        } @catch (__unused NSException *exception) {}
+    }
+    return NO;
+}
+
+- (nullable Class)externalSceneHostClass {
+    SEL initializer = NSSelectorFromString(@"initWithSceneLayer:parentScene:");
+    for (NSString *name in @[@"FBExternalSceneLayerHostView",
+                             @"_UIExternalSceneLayerHostView",
+                             @"UIExternalSceneLayerHostView"]) {
+        Class cls = NSClassFromString(name);
+        if (cls && [cls instancesRespondToSelector:initializer]) {
+            return cls;
+        }
+    }
+    return Nil;
+}
+
+- (NSArray *)externalSceneLayers {
+    if (!self.scene) return @[];
+
+    id layerManager = [self layerManagerFromScene:self.scene];
     if (!layerManager) return @[];
 
     id layers = nil;
@@ -870,25 +925,108 @@
 
     NSMutableArray *external = [NSMutableArray array];
     for (id layer in [self arrayFromCollection:layers]) {
-        id externalSceneID = nil;
-        @try {
-            SEL selector = NSSelectorFromString(@"externalSceneID");
-            if ([layer respondsToSelector:selector]) {
-                externalSceneID = ((id (*)(id, SEL))objc_msgSend)(layer, selector);
-            } else {
-                externalSceneID = [layer valueForKey:@"externalSceneID"];
-            }
-        } @catch (__unused NSException *exception) {}
-        if (externalSceneID && externalSceneID != [NSNull null]) {
+        if ([self layerHasExternalSceneID:layer]) {
             [external addObject:layer];
         }
     }
     return [external copy];
 }
 
+- (void)startObservingLayerManager {
+    id layerManager = [self layerManagerFromScene:self.scene];
+    if (!layerManager) return;
+    if (self.observingLayerManager && self.observedLayerManager == layerManager) return;
+
+    [self stopObservingLayerManager];
+    @try {
+        [layerManager addObserver:self
+                       forKeyPath:@"layers"
+                          options:(NSKeyValueObservingOptionNew | NSKeyValueObservingOptionOld)
+                          context:NULL];
+        self.observedLayerManager = layerManager;
+        self.observingLayerManager = YES;
+    } @catch (NSException *exception) {
+        NSLog(@"[DualPane] layer observe failed %@: %@", self.bundleID, exception);
+        self.observedLayerManager = nil;
+        self.observingLayerManager = NO;
+    }
+}
+
+- (void)stopObservingLayerManager {
+    if (!self.observingLayerManager || !self.observedLayerManager) {
+        self.observedLayerManager = nil;
+        self.observingLayerManager = NO;
+        return;
+    }
+    @try {
+        [self.observedLayerManager removeObserver:self forKeyPath:@"layers"];
+    } @catch (__unused NSException *exception) {}
+    self.observedLayerManager = nil;
+    self.observingLayerManager = NO;
+}
+
+- (void)observeValueForKeyPath:(NSString *)keyPath
+                      ofObject:(id)object
+                        change:(NSDictionary<NSKeyValueChangeKey,id> *)change
+                       context:(void *)context {
+    if ([keyPath isEqualToString:@"layers"] && object == self.observedLayerManager) {
+        [self scheduleExternalSceneRefresh];
+        return;
+    }
+    [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
+}
+
+- (void)prepareRemoteKeyboardSupport {
+    Class remoteClass = NSClassFromString(@"_UIRemoteKeyboards");
+    if (!remoteClass) return;
+    id keyboards = nil;
+    SEL shared = NSSelectorFromString(@"sharedRemoteKeyboards");
+    @try {
+        if ([remoteClass respondsToSelector:shared]) {
+            keyboards = ((id (*)(id, SEL))objc_msgSend)(remoteClass, shared);
+        }
+    } @catch (__unused NSException *exception) {}
+    if (!keyboards) return;
+
+    @try {
+        SEL setSuppressing = NSSelectorFromString(@"setSuppressingKeyboard:");
+        if ([keyboards respondsToSelector:setSuppressing]) {
+            ((void (*)(id, SEL, BOOL))objc_msgSend)(keyboards, setSuppressing, NO);
+        }
+    } @catch (__unused NSException *exception) {}
+
+    @try {
+        SEL setWindowEnabled = NSSelectorFromString(@"setWindowEnabled:");
+        if ([keyboards respondsToSelector:setWindowEnabled]) {
+            ((void (*)(id, SEL, BOOL))objc_msgSend)(keyboards, setWindowEnabled, YES);
+        }
+    } @catch (__unused NSException *exception) {}
+
+    @try {
+        SEL setCurrentKeyboard = NSSelectorFromString(@"setCurrentKeyboard:");
+        if ([keyboards respondsToSelector:setCurrentKeyboard]) {
+            ((void (*)(id, SEL, BOOL))objc_msgSend)(keyboards, setCurrentKeyboard, YES);
+        }
+    } @catch (__unused NSException *exception) {}
+
+    @try {
+        SEL prepareHosted = NSSelectorFromString(@"prepareForHostedWindow");
+        if ([keyboards respondsToSelector:prepareHosted]) {
+            ((id (*)(id, SEL))objc_msgSend)(keyboards, prepareHosted);
+        }
+    } @catch (__unused NSException *exception) {}
+
+    @try {
+        SEL clean = NSSelectorFromString(@"cleanSuppression");
+        if ([keyboards respondsToSelector:clean]) {
+            ((void (*)(id, SEL))objc_msgSend)(keyboards, clean);
+        }
+    } @catch (__unused NSException *exception) {}
+}
+
 - (void)scheduleExternalSceneRefresh {
     NSUInteger generation = ++self.externalRefreshGeneration;
-    NSArray<NSNumber *> *delays = @[@0.0, @0.12, @0.3, @0.6, @1.0];
+    NSArray<NSNumber *> *delays = @[@0.0, @0.05, @0.12, @0.25, @0.5, @0.9, @1.5, @2.5];
     __weak typeof(self) weakSelf = self;
     for (NSNumber *delay in delays) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
@@ -902,13 +1040,15 @@
 }
 
 - (void)refreshExternalSceneHosts {
+    [self startObservingLayerManager];
+
     NSArray *layers = [self externalSceneLayers];
     if (layers.count == 0) {
         [self clearExternalSceneHosts];
         return;
     }
 
-    UIView *root = self.view.window.rootViewController.view;
+    UIView *root = self.view.window.rootViewController.view ?: self.view.window;
     if (!root) return;
     if ([layers isEqualToArray:self.hostedExternalLayers]
         && self.externalSceneContainer.superview == root) {
@@ -917,14 +1057,20 @@
         return;
     }
 
-    Class externalHostClass = NSClassFromString(@"_UIExternalSceneLayerHostView");
+    Class externalHostClass = [self externalSceneHostClass];
     SEL initializer = NSSelectorFromString(@"initWithSceneLayer:parentScene:");
-    if (!externalHostClass || ![externalHostClass instancesRespondToSelector:initializer]) return;
+    if (!externalHostClass) {
+        NSLog(@"[DualPane] no external scene host class for %@", self.bundleID);
+        return;
+    }
 
     UIView *container = [[UIView alloc] initWithFrame:root.bounds];
     container.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     container.backgroundColor = [UIColor clearColor];
+    // Keep non-interactive so DualPane chrome still receives gestures; the
+    // keyboard pixels still composite on top of the floating window.
     container.userInteractionEnabled = NO;
+    container.clipsToBounds = NO;
     NSUInteger created = 0;
     for (id layer in layers) {
         @try {
@@ -934,18 +1080,26 @@
             if (![host isKindOfClass:[UIView class]]) continue;
             host.frame = container.bounds;
             host.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            host.userInteractionEnabled = NO;
             [container addSubview:host];
             created += 1;
-        } @catch (__unused NSException *exception) {}
+        } @catch (NSException *exception) {
+            NSLog(@"[DualPane] external host create failed %@: %@", self.bundleID, exception);
+        }
     }
-    if (created == 0) return;
+    if (created == 0) {
+        NSLog(@"[DualPane] external layers present but host create failed %@ count=%@",
+              self.bundleID, @(layers.count));
+        return;
+    }
 
-    [self clearExternalSceneHosts];
+    [self.externalSceneContainer removeFromSuperview];
     self.hostedExternalLayers = [layers copy];
     self.externalSceneContainer = container;
     [root addSubview:container];
     [root bringSubviewToFront:container];
-    NSLog(@"[DualPane] external scene hosts %@ layers=%@", self.bundleID, @(created));
+    NSLog(@"[DualPane] external scene hosts %@ class=%@ layers=%@",
+          self.bundleID, NSStringFromClass(externalHostClass), @(created));
 }
 
 - (void)clearExternalSceneHosts {
@@ -1217,7 +1371,8 @@
         self.snapshotView.hidden = YES;
         self.live = YES;
         [self prepareForInput];
-        [self startSceneKeepAlive];
+    [self startObservingLayerManager];
+    [self startSceneKeepAlive];
         return;
     }
 
@@ -1242,6 +1397,7 @@
 
     [self prepareForInput];
     [self commitHostedFrame];
+    [self startObservingLayerManager];
     [self startSceneKeepAlive];
     [self acquireProcessAssertionIfNeeded];
     NSLog(@"[DualPane] LIVE attach %@ view=%@", self.bundleID, NSStringFromClass([hostView class]));
@@ -1450,6 +1606,8 @@
     [self enableInteractionInView:self.hostView];
     self.view.userInteractionEnabled = YES;
     [self applySceneForeground:YES backgrounded:NO size:CGSizeZero includeFrame:NO];
+    [self prepareRemoteKeyboardSupport];
+    [self startObservingLayerManager];
     [self scheduleExternalSceneRefresh];
 }
 
@@ -1484,7 +1642,8 @@
         [self stopSceneKeepAlive];
     } else {
         [self applySceneForeground:YES backgrounded:NO size:CGSizeZero includeFrame:NO];
-        [self startSceneKeepAlive];
+    [self startObservingLayerManager];
+    [self startSceneKeepAlive];
     }
 }
 
@@ -1492,6 +1651,7 @@
     if (self.attaching) return;
     NSLog(@"[DualPane] retryAttach #%@ %@", @(self.attemptCount + 1), self.bundleID);
     self.externalRefreshGeneration += 1;
+    [self stopObservingLayerManager];
     [self clearExternalSceneHosts];
     [self stopSceneKeepAlive];
     [self releaseProcessAssertion];
@@ -1510,6 +1670,7 @@
 
 - (void)invalidate {
     self.externalRefreshGeneration += 1;
+    [self stopObservingLayerManager];
     [self clearExternalSceneHosts];
     [self stopSceneKeepAlive];
     [self stopReconnect];

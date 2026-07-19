@@ -21,7 +21,10 @@
 @property (nonatomic, assign) BOOL hostedInputActive;
 - (void)openFloatingWithBundleID:(NSString *)bundleID reusingHost:(nullable DPSceneHost *)reusableHost;
 - (void)makeOverlayKeyWindow;
+- (void)ensureOverlayVisible;
 - (void)restorePreviousKeyWindow;
+- (id)sharedRemoteKeyboards;
+- (void)configureRemoteKeyboardsForHostedInput:(BOOL)enabled;
 @end
 
 @implementation DPWindowManager
@@ -504,12 +507,82 @@
     [self restorePreviousKeyWindow];
 }
 
+- (id)sharedRemoteKeyboards {
+    Class remoteClass = NSClassFromString(@"_UIRemoteKeyboards");
+    if (!remoteClass) return nil;
+    SEL shared = NSSelectorFromString(@"sharedRemoteKeyboards");
+    if (![remoteClass respondsToSelector:shared]) return nil;
+    @try {
+        return ((id (*)(id, SEL))objc_msgSend)(remoteClass, shared);
+    } @catch (__unused NSException *exception) {
+        return nil;
+    }
+}
+
+- (void)configureRemoteKeyboardsForHostedInput:(BOOL)enabled {
+    id keyboards = [self sharedRemoteKeyboards];
+    if (!keyboards) return;
+
+    @try {
+        SEL setSuppressing = NSSelectorFromString(@"setSuppressingKeyboard:");
+        if ([keyboards respondsToSelector:setSuppressing]) {
+            ((void (*)(id, SEL, BOOL))objc_msgSend)(keyboards, setSuppressing, !enabled);
+        }
+    } @catch (__unused NSException *exception) {}
+
+    @try {
+        SEL setWindowEnabled = NSSelectorFromString(@"setWindowEnabled:");
+        if ([keyboards respondsToSelector:setWindowEnabled]) {
+            ((void (*)(id, SEL, BOOL))objc_msgSend)(keyboards, setWindowEnabled, enabled);
+        }
+    } @catch (__unused NSException *exception) {}
+
+    if (enabled) {
+        @try {
+            SEL setCurrentKeyboard = NSSelectorFromString(@"setCurrentKeyboard:");
+            if ([keyboards respondsToSelector:setCurrentKeyboard]) {
+                ((void (*)(id, SEL, BOOL))objc_msgSend)(keyboards, setCurrentKeyboard, YES);
+            }
+        } @catch (__unused NSException *exception) {}
+
+        @try {
+            SEL prepareHosted = NSSelectorFromString(@"prepareForHostedWindow");
+            if ([keyboards respondsToSelector:prepareHosted]) {
+                ((id (*)(id, SEL))objc_msgSend)(keyboards, prepareHosted);
+            }
+        } @catch (__unused NSException *exception) {}
+
+        @try {
+            SEL clean = NSSelectorFromString(@"cleanSuppression");
+            if ([keyboards respondsToSelector:clean]) {
+                ((void (*)(id, SEL))objc_msgSend)(keyboards, clean);
+            }
+        } @catch (__unused NSException *exception) {}
+    } else {
+        @try {
+            SEL finishHosted = NSSelectorFromString(@"finishWithHostedWindow");
+            if ([keyboards respondsToSelector:finishHosted]) {
+                ((void (*)(id, SEL))objc_msgSend)(keyboards, finishHosted);
+            }
+        } @catch (__unused NSException *exception) {}
+    }
+}
+
 - (void)prepareForHostedInput {
     if (!self.overlayWindow || self.overlayWindow.hidden) return;
-    [self makeOverlayKeyWindow];
+    // Keep DualPane chrome above SpringBoard, but do not permanently steal the
+    // keyboard arbiter from third-party IMEs such as WeChat Keyboard.
+    [self ensureOverlayVisible];
+    [self configureRemoteKeyboardsForHostedInput:YES];
     for (DPFloatingWindow *window in self.mutableFloatingWindows) {
         [window.sceneHost prepareForInput];
     }
+}
+
+- (void)ensureOverlayVisible {
+    if (!self.overlayWindow) return;
+    self.overlayWindow.hidden = NO;
+    [self bringOverlayToFront];
 }
 
 - (void)makeOverlayKeyWindow {
@@ -519,16 +592,19 @@
         if (current != self.overlayWindow) self.keyWindowBeforeHostedInput = current;
         self.hostedInputActive = YES;
     }
-    [self.overlayWindow makeKeyAndVisible];
+    // Prefer visibility over becoming the exclusive key window. Third-party
+    // keyboards often need SpringBoard/remote keyboard ownership intact.
+    [self ensureOverlayVisible];
 }
 
 - (void)restorePreviousKeyWindow {
+    [self configureRemoteKeyboardsForHostedInput:NO];
     if (!self.hostedInputActive) return;
     self.hostedInputActive = NO;
     UIWindow *target = self.keyWindowBeforeHostedInput;
     self.keyWindowBeforeHostedInput = nil;
     if (target && target != self.overlayWindow && !target.hidden) {
-        [target makeKeyAndVisible];
+        [target makeKeyWindow];
     } else if (self.overlayWindow.isKeyWindow) {
         [self.overlayWindow resignKeyWindow];
     }
@@ -541,10 +617,12 @@
 }
 
 - (void)hostedKeyboardWillHide {
-    // Keep the overlay key while a hosted app is open. UIKit sends a hide
-    // notification while changing text fields; restoring the old key window
-    // here makes the next input field lose the keyboard immediately.
-    if (self.mutableFloatingWindows.count > 0) return;
+    // Keep remote keyboard support armed while a hosted app is open. UIKit
+    // sends hide notifications while changing text fields.
+    if (self.mutableFloatingWindows.count > 0) {
+        [self configureRemoteKeyboardsForHostedInput:YES];
+        return;
+    }
     [self restorePreviousKeyWindow];
 }
 
